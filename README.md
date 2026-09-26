@@ -1,33 +1,32 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part extraction, no-scale layout editing and PNG export.
+Browser-side pattern-part extraction, no-scale layout editing, automatic pagination and PNG export.
 
-## V1.2
+## V1.3
 
 The current pipeline is:
 
-**Upload → robust background model → text exclusion → morphology cleanup → contour smoothing → MaxRects packing → manual repair → PNG + DPI**
+**Upload → text exclusion → edge cleanup → smooth contour → automatic multi-page MaxRects → page editing → PNG / ZIP export**
 
-### Text exclusion
+### Automatic multi-page layout
 
-- conservative geometry-based text-line detection is enabled by default
-- protected large parts are never removed just because their edges fragment
-- optional lazy Chinese/English OCR enhancement is available
-- OCR failure automatically falls back to geometry filtering
+V1.3 removes the old single-page overflow limitation.
 
-### Smooth edges
+- MaxRects packs page 1 first
+- remaining parts automatically continue to page 2, page 3, ...
+- a part that physically fits the target canvas can receive its own dedicated page
+- only a part whose own width/height exceeds the target canvas is considered truly unplaceable
+- no part is resized to make it fit
 
-- closing + opening morphology
-- tiny-island removal
-- small-hole filling
-- 8-connected components
-- outer and internal contour tracing
-- Chaikin smoothing
-- supersampled antialiased alpha
-- even-odd rendering preserves real internal holes
+Supported targets:
 
-### Manual repair
+- 3500×3500
+- 2970×2100
 
+### Page editor
+
+- previous / next page navigation
+- current page / total page indicator
 - select / multi-select
 - drag
 - lock / unlock
@@ -37,52 +36,51 @@ The current pipeline is:
 - split disconnected regions
 - delete
 - Undo / Redo
-- Ctrl/Shift multi-select
-- Ctrl+Z / Ctrl+Shift+Z
+- complete re-pagination
 
-### Debug / acceptance diagnostics
+### Export
 
-The app can show:
-
-- raw mask
-- post-text-filter mask
-- smoothed mask
-- detected text boxes
-- text count
-- removed-island count
-- filled-hole count
-- final part count
-- MaxRects strategy and utilization
-
-### Layout and export
-
-- 3500×3500
-- 2970×2100
-- no part resizing in packing/editor/export
+- export current page as PNG
+- export all pages as one ZIP
+- ordered page filenames
 - configurable DPI
-- PNG `pHYs` metadata
-- overflow validation before export
+- PNG `pHYs` metadata on every exported page
+- 1:1 part pixel dimensions throughout packing and export
+
+### V1.2 quality pipeline retained
+
+- conservative geometry-based text-line detection
+- optional lazy Chinese/English OCR enhancement
+- robust dominant-border background model
+- closing / opening morphology
+- tiny-island removal
+- small-hole filling
+- outer and internal contour tracing
+- Chaikin smoothing
+- supersampled antialiased alpha
+- even-odd rendering for internal holes
 
 ## Live site
 
 https://invoidstar.github.io/pattern-layout-studio/
 
-## Real-image acceptance
+## Acceptance
 
-V1.2 was checked against five real user-supplied pattern images. The most important cases include:
+V1.3 specifically addresses dense pattern sheets that previously produced `overflow` when every extracted part could not be packed onto one page.
 
-- a 2048×2048 sheet with **3 Chinese annotation lines**: 3 text regions removed, 11/11 intended parts retained
-- a gray-background JPEG with severe edge fragmentation: **87 raw components → 11 intended final parts**
-- white PNG/JPEG pattern sheets where text filtering remains inactive and intended part counts are preserved
+The new rule is:
 
-The private source images are not committed to this public repository.
+> Not fitting the current page creates another page. It is not an error.
+
+A near-canvas-size part that fits physically but cannot satisfy the normal packing margin also receives a dedicated page instead of being reported as overflow.
 
 Detailed documents:
 
+- [V1.3 implementation](docs/V1.3_IMPLEMENTATION.md)
+- [V1.3 acceptance](docs/V1.3_ACCEPTANCE.md)
 - [V1.2 implementation](docs/V1.2_IMPLEMENTATION.md)
 - [V1.2 acceptance](docs/V1.2_ACCEPTANCE.md)
-- [V1.1 acceptance](docs/V1.1_ACCEPTANCE.md)
 
 ## Privacy
 
-Image processing happens in the browser. Uploaded pattern images are not sent to this repository. Optional OCR downloads its OCR runtime/language data only when the OCR enhancement switch is enabled.
+Image processing happens in the browser. Uploaded pattern images are not committed to this repository. Optional OCR downloads OCR runtime/language data only when the OCR enhancement switch is enabled.
