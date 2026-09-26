@@ -605,6 +605,19 @@ export default function App() {
     dragRef.current = null;
   }
 
+  function sourceLabelFor(part: PatternPart) {
+    const ids = [...new Set(
+      sourceRegionsFor(part).map((region) => region.sourceId),
+    )];
+    if (!ids.length && part.sourceId) ids.push(part.sourceId);
+    return ids
+      .map((id) => {
+        const index = sourceReferences.findIndex((source) => source.id === id);
+        return index >= 0 ? `S${index + 1}` : 'Source';
+      })
+      .join('+');
+  }
+
   function pushHistory(snapshot = parts) {
     undoRef.current.push(cloneParts(snapshot));
     if (undoRef.current.length > HISTORY_LIMIT) undoRef.current.shift();
@@ -1499,11 +1512,31 @@ export default function App() {
       }
 
       const mergedUrl = canvas.toDataURL('image/png');
-      const mergedSourceBoxes = selected.flatMap((part) => sourceBoxesFor(part));
+      const mergedSourceRegions = selected.flatMap((part) =>
+        sourceRegionsFor(part),
+      );
+      const mergedSourceIds = [...new Set(
+        mergedSourceRegions.map((region) => region.sourceId),
+      )];
+      const singleSourceId =
+        mergedSourceIds.length === 1 ? mergedSourceIds[0] : undefined;
+      const sameSourceRegions = singleSourceId
+        ? mergedSourceRegions.filter(
+            (region) => region.sourceId === singleSourceId,
+          )
+        : [];
+      const mergedSourceBoxes = sameSourceRegions
+        .map((region) => region.box)
+        .filter((box): box is SourceBox => Boolean(box));
       const mergedSourceBox = unionSourceBoxes(mergedSourceBoxes);
+      const mergedSourceContours = sameSourceRegions.flatMap(
+        (region) => region.contours ?? [],
+      );
+
       const merged: PatternPart = {
         id: `merged-${Date.now()}`,
         name: `合并零件 ${selected.length}`,
+        sourceId: singleSourceId,
         imageUrl: mergedUrl,
         sourceImageUrl: mergedUrl,
         rawSourceImageUrl: mergedUrl,
@@ -1519,9 +1552,8 @@ export default function App() {
           smoothingApplied: true,
           sourceBox: mergedSourceBox,
           sourceBoxes: mergedSourceBoxes,
-          sourceContours: selected.flatMap(
-            (part) => part.stats?.sourceContours ?? [],
-          ),
+          sourceContours: mergedSourceContours,
+          sourceRegions: mergedSourceRegions,
         },
       };
 
@@ -1566,7 +1598,12 @@ export default function App() {
       }
 
       pushHistory();
-      const parentSourceBoxes = sourceBoxesFor(selectedPart);
+      const parentSourceRegions = sourceRegionsFor(selectedPart);
+      const exactParentRegion =
+        parentSourceRegions.length === 1 &&
+        parentSourceRegions[0].box
+          ? parentSourceRegions[0]
+          : undefined;
       const rawParent = await loadImage(
         selectedPart.rawSourceImageUrl ??
           selectedPart.sourceImageUrl ??
@@ -1576,14 +1613,16 @@ export default function App() {
         const pieceUrl = cropCanvas(image, box);
         const rawPieceUrl = cropCanvas(rawParent, box);
         const mappedSourceBox =
-          parentSourceBoxes.length === 1
+          exactParentRegion?.box
             ? {
-                x: parentSourceBoxes[0].x + box.x,
-                y: parentSourceBoxes[0].y + box.y,
+                x: exactParentRegion.box.x + box.x,
+                y: exactParentRegion.box.y + box.y,
                 width: box.width,
                 height: box.height,
               }
             : undefined;
+        const mappedSourceId =
+          exactParentRegion?.sourceId ?? selectedPart.sourceId;
 
         const childMask = new Uint8Array(box.width * box.height);
         for (let y = 0; y < box.height; y += 1) {
@@ -1606,11 +1645,20 @@ export default function App() {
                   y: mappedSourceBox.y + point.y,
                 })),
               )
-            : selectedPart.stats?.sourceContours;
+            : undefined;
+        const childSourceRegions: SourceRegion[] =
+          mappedSourceBox && mappedSourceId
+            ? [{
+                sourceId: mappedSourceId,
+                box: mappedSourceBox,
+                contours: mappedContours,
+              }]
+            : parentSourceRegions;
 
         return {
           id: `split-${Date.now()}-${index}`,
           name: `${selectedPart.name} · ${index + 1}`,
+          sourceId: mappedSourceId,
           imageUrl: pieceUrl,
           sourceImageUrl: pieceUrl,
           rawSourceImageUrl: rawPieceUrl,
@@ -1624,11 +1672,20 @@ export default function App() {
           overflow: false,
           stats: {
             ...(selectedPart.stats ?? {}),
-            sourceBox: mappedSourceBox ?? selectedPart.stats?.sourceBox,
-            sourceBoxes: mappedSourceBox
-              ? [mappedSourceBox]
-              : parentSourceBoxes,
-            sourceContours: mappedContours,
+            sourceBox:
+              mappedSourceBox ??
+              (childSourceRegions.length === 1
+                ? childSourceRegions[0].box
+                : undefined),
+            sourceBoxes: childSourceRegions
+              .map((region) => region.box)
+              .filter((sourceBox): sourceBox is SourceBox => Boolean(sourceBox)),
+            sourceContours:
+              mappedContours ??
+              (childSourceRegions.length === 1
+                ? childSourceRegions[0].contours
+                : undefined),
+            sourceRegions: childSourceRegions,
           },
         };
       });
@@ -2199,8 +2256,8 @@ export default function App() {
                   <strong>{part.name}</strong>
                   <small>
                     {part.width} × {part.height}px
-                    {sourceBoxesFor(part).length
-                      ? ` · 来源 ${sourceBoxesFor(part).length} 区域`
+                    {sourceRegionsFor(part).length
+                      ? ` · ${sourceLabelFor(part)} · 来源 ${sourceRegionsFor(part).length} 区域`
                       : ''}
                   </small>
                 </span>
