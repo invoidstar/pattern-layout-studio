@@ -18,7 +18,7 @@ import type {
   PatternPart,
   SourceBox,
   SourceRegion,
-} from '../types';
+} from '../domain';
 import {
   cropCanvas,
   loadImage,
