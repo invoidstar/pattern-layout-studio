@@ -1727,28 +1727,29 @@ export default function App() {
     <main className="app-shell v14-shell v16-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.6</span>
-          <h1>多页自由编排 · Pattern Workspace</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.7</span>
+          <h1>多图项目 · Unified Page Layout</h1>
           <p>
-            V1.6 支持跨 Page 移动零件，并在自动分页后继续做整页合并和跨页回填；
-            工作区也重新整理，让原图、画布、分页、零件管理和导出更集中。
+            一次选择多张原图，系统会逐张完成精确拆件，再把所有零件汇入同一个项目统一分页优化；
+            每个零件仍保留自己的原图来源、精确轮廓与跨页编辑能力。
           </p>
         </div>
-        <div className="hero-badge">Page Flow</div>
+        <div className="hero-badge">Multi Source</div>
       </section>
 
       <section className="control-grid v12-grid v16-commandbar">
         <label className="upload-card">
           <span className="control-label">1 · 上传图片</span>
-          <strong>{busy ? '处理中…' : '选择 PNG / JPG'}</strong>
+          <strong>{busy ? '批量处理中…' : '选择一张或多张图片'}</strong>
           <small>{sourceInfo}</small>
           <input
             type="file"
             accept="image/png,image/jpeg,image/webp"
+            multiple
             disabled={busy}
             onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void processFile(file);
+              const files = Array.from(event.target.files ?? []);
+              if (files.length) void processFiles(files);
               event.currentTarget.value = '';
             }}
           />
@@ -1859,9 +1860,12 @@ export default function App() {
           背景
         </span>
         {quality && <span className="metric-chip">文字 {quality.textRegions}</span>}
+        {sourceReferences.length > 0 && (
+          <span className="metric-chip">{sourceReferences.length} 张原图</span>
+        )}
         {pageCount > 0 && <span className="metric-chip">共 {pageCount} 页</span>}
-        {selectedSourceBoxes.length > 0 && (
-          <span className="metric-chip">来源 {selectedSourceBoxes.length} 区域</span>
+        {selectedSourceRegionCount > 0 && (
+          <span className="metric-chip">来源 {selectedSourceRegionCount} 区域</span>
         )}
         {unplaceableCount > 0 && <span className="warning-chip">{unplaceableCount} 个超大零件</span>}
       </section>
@@ -1873,6 +1877,9 @@ export default function App() {
               <span className="control-label">SOURCE TRACE</span>
               <strong>原图定位</strong>
             </div>
+            <span className="panel-page-badge">
+              {sourceReferences.length} sources
+            </span>
             <button
               className="debug-toggle"
               onClick={() => setDebugOpen((value) => !value)}
@@ -1882,17 +1889,32 @@ export default function App() {
             </button>
           </div>
 
-          {sourceReference ? (
+          {activeSource ? (
             <>
+              {sourceReferences.length > 1 && (
+                <div className="source-tabs">
+                  {sourceReferences.map((source, index) => (
+                    <button
+                      key={source.id}
+                      className={source.id === activeSource.id ? 'active' : ''}
+                      onClick={() => setActiveSourceId(source.id)}
+                      title={source.name}
+                    >
+                      <img src={source.imageUrl} alt="" />
+                      <span>S{index + 1}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="source-preview-wrap">
                 <div
                   className="source-image-wrap"
-                  style={{ aspectRatio: `${sourceReference.width} / ${sourceReference.height}` }}
+                  style={{ aspectRatio: `${activeSource.width} / ${activeSource.height}` }}
                 >
-                  <img src={sourceReference.imageUrl} alt={sourceReference.name} />
+                  <img src={activeSource.imageUrl} alt={activeSource.name} />
                   <svg
                     className="source-shape-layer"
-                    viewBox={`0 0 ${sourceReference.width} ${sourceReference.height}`}
+                    viewBox={`0 0 ${activeSource.width} ${activeSource.height}`}
                     preserveAspectRatio="none"
                     aria-label="原图精确来源轮廓"
                   >
@@ -1928,11 +1950,11 @@ export default function App() {
               <div className="source-meta">
                 <div>
                   <span>原图</span>
-                  <strong>{sourceReference.width} × {sourceReference.height}</strong>
+                  <strong>{activeSource.width} × {activeSource.height}</strong>
                 </div>
                 <div>
-                  <span>当前页映射</span>
-                  <strong>{sourceTraceItems.length} 区域</strong>
+                  <span>{activeSource.name}</span>
+                  <strong>{sourceTraceItems.length} 个当前页映射</strong>
                 </div>
               </div>
 
@@ -1941,7 +1963,9 @@ export default function App() {
                   <>
                     <div className="source-selection-title">
                       <strong>已选 {selectedIds.length} 个零件</strong>
-                      <span>来自 {selectedSourceBoxes.length} 个原图区域</span>
+                      <span>
+                        当前原图 {selectedSourceBoxes.length} 区域 · 总计 {selectedSourceRegionCount}
+                      </span>
                     </div>
                     <div className="source-region-list">
                       {selectedSourceBoxes.map((box, index) => (
@@ -1960,8 +1984,8 @@ export default function App() {
             </>
           ) : (
             <div className="source-empty">
-              <strong>等待原图</strong>
-              <span>上传后这里会显示零件的来源区域。</span>
+              <strong>等待图片项目</strong>
+              <span>可一次选择多张图片，处理后在这里切换查看来源。</span>
             </div>
           )}
 
@@ -2045,8 +2069,8 @@ export default function App() {
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">+</div>
-                <strong>{parts.length ? '当前页暂无零件' : '上传图片开始 V1.3 处理'}</strong>
-                <span>{parts.length ? '可切换其他页或重新自动分页。' : '自动分割后会按需要生成一页或多页。'}</span>
+                <strong>{parts.length ? '当前页暂无零件' : '上传图片开始 V1.7 项目处理'}</strong>
+                <span>{parts.length ? '可切换其他页或重新自动分页。' : '多张图片会先逐张拆件，再统一生成全局 Page。'}</span>
               </div>
             )}
           </div>
@@ -2189,7 +2213,7 @@ export default function App() {
       </section>
 
       <footer>
-        <span>V1.6 · cross-page transfer · global page compaction · exact shape mask</span>
+        <span>V1.7 · multi-image project · unified packing · exact source provenance</span>
         <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
