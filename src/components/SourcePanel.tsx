@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { PatternPart, SourceBox, SourcePoint } from '../types';
+import type { PatternPart, SourceBox, SourcePoint } from '../domain';
 import type { SourceReference } from '../features/project/model';
 import {
   sourceBoxesFor,
