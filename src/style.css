@@ -540,3 +540,26 @@ body{background:var(--studio-bg)}
   .page-strip{padding:7px}
   .page-chip{padding:6px 7px}
 }
+
+/* V1.7 multi-source project */
+.source-tabs{
+  display:flex;gap:6px;overflow-x:auto;padding:8px 9px 7px;
+  border-bottom:1px solid var(--studio-line);background:#fafbfe;scrollbar-width:thin
+}
+.source-tabs button{
+  flex:0 0 auto;position:relative;width:52px;height:48px;padding:3px;border:1px solid #dde3ee;
+  border-radius:9px;background:#fff;overflow:hidden
+}
+.source-tabs button img{
+  display:block;width:100%;height:100%;object-fit:cover;border-radius:6px;opacity:.72
+}
+.source-tabs button span{
+  position:absolute;right:3px;bottom:3px;padding:2px 4px;border-radius:5px;
+  background:rgba(35,45,68,.78);color:#fff;font-size:7px;font-weight:900
+}
+.source-tabs button.active{
+  border-color:#8799f0;box-shadow:0 0 0 2px rgba(80,101,216,.13)
+}
+.source-tabs button.active img{opacity:1}
+.source-tabs button.active span{background:#5065d8}
+.v16-commandbar .upload-card small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
