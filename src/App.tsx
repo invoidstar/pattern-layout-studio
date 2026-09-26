@@ -1,10 +1,579 @@
-import {useState} from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { estimateSolidBackground } from './core/background';
+import { extractComponents } from './core/segmentation';
+import { packWithoutScaling } from './core/packing';
+import { centerLayout, validateNoScaleFit } from './core/converter';
+import { canvasToPngWithDpi } from './core/png';
+import type { CanvasSize, PatternPart } from './types';
 
-const A4={w:2970,h:2100};const SQUARE={w:3500,h:3500};
+const TARGETS: Record<'square' | 'a4', CanvasSize> = {
+  square: { width: 3500, height: 3500, label: '3500 × 3500' },
+  a4: { width: 2970, height: 2100, label: '2970 × 2100' },
+};
 
-export default function App(){
- const [src,setSrc]=useState<string>();const [size,setSize]=useState('');const [out,setOut]=useState<string>();const [msg,setMsg]=useState('');
- function load(file:File){const r=new FileReader();r.onload=()=>{const i=new Image();i.onload=()=>{setSrc(String(r.result));setSize(`${i.width}×${i.height}`);setMsg(i.width===3500&&i.height===3500?'3500 → A4 mode':i.width===2970&&i.height===2100?'A4 → 3500 mode':'Unsupported size')};i.src=String(r.result)};r.readAsDataURL(file)}
- function convert(){if(!src)return;const i=new Image();i.onload=()=>{const target=size==='3500×3500'?A4:SQUARE;const c=document.createElement('canvas');c.width=target.w;c.height=target.h;const x=c.getContext('2d')!;x.fillStyle='#aaaaaa';x.fillRect(0,0,c.width,c.height);if(size==='3500×3500'){x.drawImage(i,0,0)}else{x.drawImage(i,(3500-i.width)/2,(3500-i.height)/2)}setOut(c.toDataURL('image/png'));};i.src=src}
- return <main><h1>Pattern Layout Studio</h1><p>No-scale converter: 3500×3500 ↔ A4 2970×2100. Parts are not resized.</p><input type="file" accept="image/png" onChange={e=>e.target.files&&load(e.target.files[0])}/><h3>{size}</h3><h3>{msg}</h3><button onClick={convert}>Convert</button>{out&&<><h3>Preview</h3><img src={out}/><br/><a download="pattern.png" href={out}>Download PNG</a></>}</main>
+const GAP = 24;
+const BACKGROUND_THRESHOLD = 42;
+
+function rgbCss(r: number, g: number, b: number) {
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Image decode failed'));
+    image.src = url;
+  });
+}
+
+function readFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function arrangeParts(parts: PatternPart[], target: CanvasSize) {
+  const packed = packWithoutScaling(
+    parts.map((part) => ({ id: part.id, width: part.width, height: part.height })),
+    target,
+    GAP,
+  );
+
+  const placed = packed
+    .filter((item) => item.placed && item.x !== undefined && item.y !== undefined)
+    .map((item) => ({
+      id: item.id,
+      x: item.x!,
+      y: item.y!,
+      width: item.width,
+      height: item.height,
+    }));
+
+  const centered = centerLayout(placed, target);
+  const positions = new Map(centered.map((item) => [item.id, item]));
+  let overflow = 0;
+
+  const arranged = parts.map((part) => {
+    const position = positions.get(part.id);
+    if (!position) {
+      overflow += 1;
+      return { ...part, x: 0, y: 0 };
+    }
+    return { ...part, x: position.x, y: position.y };
+  });
+
+  return { arranged, overflow };
+}
+
+function isInside(part: PatternPart, target: CanvasSize) {
+  return (
+    part.x >= 0 &&
+    part.y >= 0 &&
+    part.x + part.width <= target.width &&
+    part.y + part.height <= target.height
+  );
+}
+
+export default function App() {
+  const [parts, setParts] = useState<PatternPart[]>([]);
+  const [targetKey, setTargetKey] = useState<'square' | 'a4'>('a4');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
+  const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
+  const [status, setStatus] = useState('上传 PNG/JPG 后会自动执行背景识别、零件分割和无缩放排版。');
+  const [dpi, setDpi] = useState(300);
+  const [busy, setBusy] = useState(false);
+  const [renderTick, setRenderTick] = useState(0);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+
+  const target = TARGETS[targetKey];
+  const selectedPart = parts.find((part) => part.id === selectedId) ?? null;
+  const overflowCount = parts.filter((part) => part.visible && !isInside(part, target)).length;
+
+  const preview = useMemo(() => {
+    const maxWidth = 820;
+    const maxHeight = 600;
+    const scale = Math.min(maxWidth / target.width, maxHeight / target.height);
+    return {
+      width: Math.round(target.width * scale),
+      height: Math.round(target.height * scale),
+    };
+  }, [target]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(preview.width * dpr);
+    canvas.height = Math.round(preview.height * dpr);
+    canvas.style.width = `${preview.width}px`;
+    canvas.style.height = `${preview.height}px`;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    context.clearRect(0, 0, preview.width, preview.height);
+    context.fillStyle = backgroundCss;
+    context.fillRect(0, 0, preview.width, preview.height);
+
+    const sx = preview.width / target.width;
+    const sy = preview.height / target.height;
+
+    for (const part of parts) {
+      if (!part.visible) continue;
+      let image = imageCacheRef.current.get(part.imageUrl);
+      if (!image) {
+        image = new Image();
+        image.onload = () => setRenderTick((value) => value + 1);
+        image.src = part.imageUrl;
+        imageCacheRef.current.set(part.imageUrl, image);
+      }
+      if (image.complete && image.naturalWidth > 0) {
+        context.drawImage(
+          image,
+          part.x * sx,
+          part.y * sy,
+          part.width * sx,
+          part.height * sy,
+        );
+      }
+
+      if (part.id === selectedId) {
+        context.save();
+        context.strokeStyle = part.locked ? '#f59e0b' : '#2563eb';
+        context.lineWidth = 2;
+        context.setLineDash(part.locked ? [7, 5] : []);
+        context.strokeRect(
+          part.x * sx + 1,
+          part.y * sy + 1,
+          Math.max(0, part.width * sx - 2),
+          Math.max(0, part.height * sy - 2),
+        );
+        context.restore();
+      }
+    }
+  }, [parts, target, backgroundCss, selectedId, preview, renderTick]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const element = event.target as HTMLElement | null;
+      if (element && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)) return;
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
+        setParts((current) => current.filter((part) => part.id !== selectedId));
+        setSelectedId(null);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedId]);
+
+  async function processFile(file: File) {
+    setBusy(true);
+    setSelectedId(null);
+    setStatus('正在读取图片并执行分割…');
+
+    try {
+      const dataUrl = await readFile(file);
+      const image = await loadImage(dataUrl);
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = image.naturalWidth;
+      sourceCanvas.height = image.naturalHeight;
+      const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+      if (!sourceContext) throw new Error('Canvas unavailable');
+
+      sourceContext.drawImage(image, 0, 0);
+      const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      const background = estimateSolidBackground(imageData);
+      const backgroundColor = rgbCss(background.r, background.g, background.b);
+      setBackgroundCss(backgroundColor);
+
+      const pixelCount = sourceCanvas.width * sourceCanvas.height;
+      const mask = new Uint8Array(pixelCount);
+      const thresholdSquared = BACKGROUND_THRESHOLD * BACKGROUND_THRESHOLD;
+
+      for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+        const offset = pixel * 4;
+        const alpha = imageData.data[offset + 3];
+        if (alpha < 16) continue;
+        const dr = imageData.data[offset] - background.r;
+        const dg = imageData.data[offset + 1] - background.g;
+        const db = imageData.data[offset + 2] - background.b;
+        if (dr * dr + dg * dg + db * db > thresholdSquared) mask[pixel] = 1;
+      }
+
+      const minArea = Math.max(96, Math.round(pixelCount * 0.00005));
+      let boxes = extractComponents(mask, sourceCanvas.width, sourceCanvas.height, minArea);
+
+      if (!boxes.length) {
+        boxes = [{
+          x: 0,
+          y: 0,
+          width: sourceCanvas.width,
+          height: sourceCanvas.height,
+          area: pixelCount,
+        }];
+        mask.fill(1);
+      }
+
+      const extracted: PatternPart[] = boxes.map((box, index) => {
+        const partCanvas = document.createElement('canvas');
+        partCanvas.width = box.width;
+        partCanvas.height = box.height;
+        const partContext = partCanvas.getContext('2d');
+        if (!partContext) throw new Error('Part canvas unavailable');
+
+        const output = partContext.createImageData(box.width, box.height);
+        for (let y = 0; y < box.height; y += 1) {
+          for (let x = 0; x < box.width; x += 1) {
+            const sourceX = box.x + x;
+            const sourceY = box.y + y;
+            const sourcePixel = sourceY * sourceCanvas.width + sourceX;
+            if (!mask[sourcePixel]) continue;
+
+            const sourceOffset = sourcePixel * 4;
+            const targetOffset = (y * box.width + x) * 4;
+            output.data[targetOffset] = imageData.data[sourceOffset];
+            output.data[targetOffset + 1] = imageData.data[sourceOffset + 1];
+            output.data[targetOffset + 2] = imageData.data[sourceOffset + 2];
+            output.data[targetOffset + 3] = imageData.data[sourceOffset + 3];
+          }
+        }
+        partContext.putImageData(output, 0, 0);
+
+        return {
+          id: `part-${Date.now()}-${index}`,
+          name: `零件 ${index + 1}`,
+          imageUrl: partCanvas.toDataURL('image/png'),
+          width: box.width,
+          height: box.height,
+          x: 0,
+          y: 0,
+          locked: false,
+          visible: true,
+        };
+      });
+
+      let nextTargetKey: 'square' | 'a4' = targetKey;
+      if (sourceCanvas.width === 3500 && sourceCanvas.height === 3500) nextTargetKey = 'a4';
+      if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) nextTargetKey = 'square';
+      const nextTarget = TARGETS[nextTargetKey];
+      const { arranged, overflow } = arrangeParts(extracted, nextTarget);
+
+      imageCacheRef.current.clear();
+      setTargetKey(nextTargetKey);
+      setParts(arranged);
+      setSourceInfo(`${file.name} · ${sourceCanvas.width} × ${sourceCanvas.height} · ${boxes.length} 个零件`);
+      setStatus(
+        overflow
+          ? `已完成识别与排版，但有 ${overflow} 个零件无法在目标画布中无缩放放下，请手动调整或切换尺寸。`
+          : `处理完成：背景识别 → 分割 → 无缩放 packing → 居中转换已串联。`,
+      );
+    } catch (error) {
+      console.error(error);
+      setStatus(`处理失败：${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function relayout(nextKey = targetKey) {
+    if (!parts.length) return;
+    const nextTarget = TARGETS[nextKey];
+    const { arranged, overflow } = arrangeParts(parts, nextTarget);
+    setTargetKey(nextKey);
+    setParts(arranged);
+    setSelectedId(null);
+    setStatus(
+      overflow
+        ? `已切换到 ${nextTarget.label}，其中 ${overflow} 个零件无法无缩放自动放入。`
+        : `已按 ${nextTarget.label} 重新进行无缩放自动排版。`,
+    );
+  }
+
+  function pointerPosition(event: React.PointerEvent<HTMLCanvasElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * target.width,
+      y: ((event.clientY - rect.top) / rect.height) * target.height,
+    };
+  }
+
+  function handlePointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
+    const point = pointerPosition(event);
+    const hit = [...parts]
+      .reverse()
+      .find(
+        (part) =>
+          part.visible &&
+          point.x >= part.x &&
+          point.y >= part.y &&
+          point.x <= part.x + part.width &&
+          point.y <= part.y + part.height,
+      );
+
+    if (!hit) {
+      setSelectedId(null);
+      dragRef.current = null;
+      return;
+    }
+
+    setSelectedId(hit.id);
+    if (!hit.locked) {
+      dragRef.current = {
+        id: hit.id,
+        offsetX: point.x - hit.x,
+        offsetY: point.y - hit.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const point = pointerPosition(event);
+
+    setParts((current) =>
+      current.map((part) => {
+        if (part.id !== drag.id || part.locked) return part;
+        const maxX = Math.max(0, target.width - part.width);
+        const maxY = Math.max(0, target.height - part.height);
+        return {
+          ...part,
+          x: Math.round(Math.min(maxX, Math.max(0, point.x - drag.offsetX))),
+          y: Math.round(Math.min(maxY, Math.max(0, point.y - drag.offsetY))),
+        };
+      }),
+    );
+  }
+
+  function stopDragging(event: React.PointerEvent<HTMLCanvasElement>) {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function toggleSelectedLock() {
+    if (!selectedId) return;
+    setParts((current) =>
+      current.map((part) =>
+        part.id === selectedId ? { ...part, locked: !part.locked } : part,
+      ),
+    );
+  }
+
+  function deleteSelected() {
+    if (!selectedId) return;
+    setParts((current) => current.filter((part) => part.id !== selectedId));
+    setSelectedId(null);
+  }
+
+  async function exportCurrent() {
+    if (!parts.length) return;
+    const visible = parts.filter((part) => part.visible);
+    const placements = visible.map(({ id, x, y, width, height }) => ({ id, x, y, width, height }));
+
+    if (!validateNoScaleFit(placements, target)) {
+      setStatus('导出已阻止：仍有零件超出画布边界。请先重新排版或拖拽到画布内。');
+      return;
+    }
+
+    setBusy(true);
+    setStatus('正在生成高分辨率 PNG 并写入 DPI metadata…');
+    try {
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = target.width;
+      exportCanvas.height = target.height;
+      const context = exportCanvas.getContext('2d');
+      if (!context) throw new Error('Export canvas unavailable');
+
+      context.fillStyle = backgroundCss;
+      context.fillRect(0, 0, target.width, target.height);
+
+      for (const part of visible) {
+        const image = await loadImage(part.imageUrl);
+        context.drawImage(image, part.x, part.y, part.width, part.height);
+      }
+
+      const blob = await canvasToPngWithDpi(exportCanvas, dpi);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `pattern-layout-${target.width}x${target.height}-${dpi}dpi.png`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus(`PNG 已生成：${target.label}，${dpi} DPI metadata，所有零件保持原始像素尺寸。`);
+    } catch (error) {
+      console.error(error);
+      setStatus(`导出失败：${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="app-shell">
+      <section className="hero">
+        <div>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO</span>
+          <h1>图案拆件与无缩放排版</h1>
+          <p>
+            上传原图后自动完成背景识别、连通域分割、无缩放 packing，并在画布中手动微调。
+            最终可导出 3500×3500 或 2970×2100 PNG，并写入 DPI。
+          </p>
+        </div>
+        <div className="hero-badge">No Scale</div>
+      </section>
+
+      <section className="control-grid">
+        <label className="upload-card">
+          <span className="control-label">1 · 上传图片</span>
+          <strong>{busy ? '处理中…' : '选择 PNG / JPG'}</strong>
+          <small>{sourceInfo}</small>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={busy}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void processFile(file);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+
+        <div className="control-card">
+          <span className="control-label">2 · 目标画布</span>
+          <div className="segmented">
+            <button
+              className={targetKey === 'square' ? 'active' : ''}
+              onClick={() => relayout('square')}
+              disabled={!parts.length || busy}
+            >
+              3500²
+            </button>
+            <button
+              className={targetKey === 'a4' ? 'active' : ''}
+              onClick={() => relayout('a4')}
+              disabled={!parts.length || busy}
+            >
+              2970×2100
+            </button>
+          </div>
+          <small>切换尺寸会重新执行无缩放 packing。</small>
+        </div>
+
+        <div className="control-card">
+          <span className="control-label">3 · 导出设置</span>
+          <div className="dpi-row">
+            <input
+              type="number"
+              min="72"
+              max="1200"
+              step="1"
+              value={dpi}
+              onChange={(event) => setDpi(Math.max(72, Number(event.target.value) || 300))}
+            />
+            <span>DPI</span>
+          </div>
+          <button className="primary" onClick={() => void exportCurrent()} disabled={!parts.length || busy}>
+            导出 PNG
+          </button>
+        </div>
+      </section>
+
+      <section className="status-row">
+        <div className="status-dot" />
+        <span>{status}</span>
+        <span className="spacer" />
+        <span className="background-chip">
+          <i style={{ background: backgroundCss }} />
+          背景色
+        </span>
+        {overflowCount > 0 && <span className="warning-chip">{overflowCount} 个越界</span>}
+      </section>
+
+      <section className="workspace">
+        <div className="canvas-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="control-label">CANVAS EDITOR</span>
+              <strong>{target.label}</strong>
+            </div>
+            <div className="toolbar">
+              <button onClick={() => relayout()} disabled={!parts.length || busy}>自动排版</button>
+              <button onClick={toggleSelectedLock} disabled={!selectedPart || busy}>
+                {selectedPart?.locked ? '解锁' : '锁定'}
+              </button>
+              <button className="danger" onClick={deleteSelected} disabled={!selectedPart || busy}>删除</button>
+            </div>
+          </div>
+
+          <div className="canvas-stage">
+            {parts.length ? (
+              <canvas
+                ref={canvasRef}
+                className="editor-canvas"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={stopDragging}
+                onPointerCancel={stopDragging}
+              />
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">+</div>
+                <strong>上传图片开始处理</strong>
+                <span>系统会自动识别背景并拆分零件。</span>
+              </div>
+            )}
+          </div>
+
+          <div className="canvas-help">
+            拖拽零件调整位置 · 点击选中 · 锁定后不可拖动 · Delete / Backspace 可删除
+          </div>
+        </div>
+
+        <aside className="parts-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="control-label">PARTS</span>
+              <strong>{parts.length} 个零件</strong>
+            </div>
+          </div>
+
+          <div className="parts-list">
+            {parts.map((part) => (
+              <button
+                key={part.id}
+                className={`part-row ${selectedId === part.id ? 'selected' : ''}`}
+                onClick={() => setSelectedId(part.id)}
+              >
+                <img src={part.imageUrl} alt="" />
+                <span>
+                  <strong>{part.name}</strong>
+                  <small>{part.width} × {part.height}px</small>
+                </span>
+                <em>{part.locked ? 'LOCK' : 'FREE'}</em>
+              </button>
+            ))}
+            {!parts.length && <div className="parts-empty">暂无零件</div>}
+          </div>
+        </aside>
+      </section>
+
+      <footer>
+        <span>背景阈值 {BACKGROUND_THRESHOLD} · 连通域分割 · 无缩放排版</span>
+        <span>PNG pHYs DPI metadata</span>
+      </footer>
+    </main>
+  );
 }
