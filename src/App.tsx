@@ -495,6 +495,7 @@ export default function App() {
         const rendered = renderPart(
           sourceCanvas,
           smoothed.mask,
+          afterTextMask,
           sourceCanvas.width,
           box,
           smoothing,
