@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { estimateSolidBackground } from './core/background';
-import { extractComponents } from './core/segmentation';
-import { packWithoutScaling } from './core/packing';
+import { estimateBackgroundModel } from './core/background';
+import { segmentForeground, type ComponentBox } from './core/segmentation';
+import {
+  packMaxRectsWithoutScaling,
+  type PackingDiagnostics,
+} from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
 import { canvasToPngWithDpi } from './core/png';
 import type { CanvasSize, PatternPart } from './types';
@@ -12,7 +15,14 @@ const TARGETS: Record<'square' | 'a4', CanvasSize> = {
 };
 
 const GAP = 24;
-const BACKGROUND_THRESHOLD = 42;
+
+interface QualityReport {
+  threshold: number;
+  spread: number;
+  foregroundRatio: number;
+  componentCount: number;
+  packing: PackingDiagnostics;
+}
 
 function rgbCss(r: number, g: number, b: number) {
   return `rgb(${r}, ${g}, ${b})`;
@@ -36,14 +46,28 @@ function readFile(file: File): Promise<string> {
   });
 }
 
+function padBox(box: ComponentBox, width: number, height: number, padding = 2): ComponentBox {
+  const x = Math.max(0, box.x - padding);
+  const y = Math.max(0, box.y - padding);
+  const right = Math.min(width, box.x + box.width + padding);
+  const bottom = Math.min(height, box.y + box.height + padding);
+  return {
+    ...box,
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+  };
+}
+
 function arrangeParts(parts: PatternPart[], target: CanvasSize) {
-  const packed = packWithoutScaling(
+  const packing = packMaxRectsWithoutScaling(
     parts.map((part) => ({ id: part.id, width: part.width, height: part.height })),
     target,
     GAP,
   );
 
-  const placed = packed
+  const placed = packing.items
     .filter((item) => item.placed && item.x !== undefined && item.y !== undefined)
     .map((item) => ({
       id: item.id,
@@ -55,22 +79,36 @@ function arrangeParts(parts: PatternPart[], target: CanvasSize) {
 
   const centered = centerLayout(placed, target);
   const positions = new Map(centered.map((item) => [item.id, item]));
-  let overflow = 0;
 
   const arranged = parts.map((part) => {
     const position = positions.get(part.id);
     if (!position) {
-      overflow += 1;
-      return { ...part, x: 0, y: 0 };
+      return {
+        ...part,
+        x: -part.width - GAP,
+        y: 0,
+        overflow: true,
+      };
     }
-    return { ...part, x: position.x, y: position.y };
+
+    return {
+      ...part,
+      x: position.x,
+      y: position.y,
+      overflow: false,
+    };
   });
 
-  return { arranged, overflow };
+  return {
+    arranged,
+    overflow: packing.diagnostics.overflowCount,
+    packing: packing.diagnostics,
+  };
 }
 
 function isInside(part: PatternPart, target: CanvasSize) {
   return (
+    !part.overflow &&
     part.x >= 0 &&
     part.y >= 0 &&
     part.x + part.width <= target.width &&
@@ -84,10 +122,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('上传 PNG/JPG 后会自动执行背景识别、零件分割和无缩放排版。');
+  const [status, setStatus] = useState('上传 PNG/JPG 后会自动执行 Segmentation V2 与 MaxRects Packing V2。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
+  const [quality, setQuality] = useState<QualityReport | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -128,7 +167,8 @@ export default function App() {
     const sy = preview.height / target.height;
 
     for (const part of parts) {
-      if (!part.visible) continue;
+      if (!part.visible || part.overflow) continue;
+
       let image = imageCacheRef.current.get(part.imageUrl);
       if (!image) {
         image = new Image();
@@ -136,6 +176,7 @@ export default function App() {
         image.src = part.imageUrl;
         imageCacheRef.current.set(part.imageUrl, image);
       }
+
       if (image.complete && image.naturalWidth > 0) {
         context.drawImage(
           image,
@@ -171,6 +212,7 @@ export default function App() {
         setSelectedId(null);
       }
     }
+
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selectedId]);
@@ -178,7 +220,8 @@ export default function App() {
   async function processFile(file: File) {
     setBusy(true);
     setSelectedId(null);
-    setStatus('正在读取图片并执行分割…');
+    setQuality(null);
+    setStatus('正在读取图片并执行 Segmentation V2…');
 
     try {
       const dataUrl = await readFile(file);
@@ -190,27 +233,26 @@ export default function App() {
       if (!sourceContext) throw new Error('Canvas unavailable');
 
       sourceContext.drawImage(image, 0, 0);
-      const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-      const background = estimateSolidBackground(imageData);
-      const backgroundColor = rgbCss(background.r, background.g, background.b);
+      const imageData = sourceContext.getImageData(
+        0,
+        0,
+        sourceCanvas.width,
+        sourceCanvas.height,
+      );
+
+      const background = estimateBackgroundModel(imageData);
+      const backgroundColor = rgbCss(
+        background.color.r,
+        background.color.g,
+        background.color.b,
+      );
       setBackgroundCss(backgroundColor);
 
-      const pixelCount = sourceCanvas.width * sourceCanvas.height;
-      const mask = new Uint8Array(pixelCount);
-      const thresholdSquared = BACKGROUND_THRESHOLD * BACKGROUND_THRESHOLD;
-
-      for (let pixel = 0; pixel < pixelCount; pixel += 1) {
-        const offset = pixel * 4;
-        const alpha = imageData.data[offset + 3];
-        if (alpha < 16) continue;
-        const dr = imageData.data[offset] - background.r;
-        const dg = imageData.data[offset + 1] - background.g;
-        const db = imageData.data[offset + 2] - background.b;
-        if (dr * dr + dg * dg + db * db > thresholdSquared) mask[pixel] = 1;
-      }
-
-      const minArea = Math.max(96, Math.round(pixelCount * 0.00005));
-      let boxes = extractComponents(mask, sourceCanvas.width, sourceCanvas.height, minArea);
+      const segmentation = segmentForeground(imageData, background);
+      let boxes = segmentation.boxes.map((box) =>
+        padBox(box, sourceCanvas.width, sourceCanvas.height),
+      );
+      let extractionMask = segmentation.rawMask;
 
       if (!boxes.length) {
         boxes = [{
@@ -218,11 +260,13 @@ export default function App() {
           y: 0,
           width: sourceCanvas.width,
           height: sourceCanvas.height,
-          area: pixelCount,
+          area: sourceCanvas.width * sourceCanvas.height,
         }];
-        mask.fill(1);
+        extractionMask = new Uint8Array(sourceCanvas.width * sourceCanvas.height);
+        extractionMask.fill(1);
       }
 
+      const stamp = Date.now();
       const extracted: PatternPart[] = boxes.map((box, index) => {
         const partCanvas = document.createElement('canvas');
         partCanvas.width = box.width;
@@ -231,12 +275,13 @@ export default function App() {
         if (!partContext) throw new Error('Part canvas unavailable');
 
         const output = partContext.createImageData(box.width, box.height);
+
         for (let y = 0; y < box.height; y += 1) {
           for (let x = 0; x < box.width; x += 1) {
             const sourceX = box.x + x;
             const sourceY = box.y + y;
             const sourcePixel = sourceY * sourceCanvas.width + sourceX;
-            if (!mask[sourcePixel]) continue;
+            if (!extractionMask[sourcePixel] && !segmentation.cleanMask[sourcePixel]) continue;
 
             const sourceOffset = sourcePixel * 4;
             const targetOffset = (y * box.width + x) * 4;
@@ -246,10 +291,11 @@ export default function App() {
             output.data[targetOffset + 3] = imageData.data[sourceOffset + 3];
           }
         }
+
         partContext.putImageData(output, 0, 0);
 
         return {
-          id: `part-${Date.now()}-${index}`,
+          id: `part-${stamp}-${index}`,
           name: `零件 ${index + 1}`,
           imageUrl: partCanvas.toDataURL('image/png'),
           width: box.width,
@@ -258,23 +304,39 @@ export default function App() {
           y: 0,
           locked: false,
           visible: true,
+          overflow: false,
         };
       });
 
       let nextTargetKey: 'square' | 'a4' = targetKey;
-      if (sourceCanvas.width === 3500 && sourceCanvas.height === 3500) nextTargetKey = 'a4';
-      if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) nextTargetKey = 'square';
+      if (sourceCanvas.width === 3500 && sourceCanvas.height === 3500) {
+        nextTargetKey = 'a4';
+      }
+      if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) {
+        nextTargetKey = 'square';
+      }
+
       const nextTarget = TARGETS[nextTargetKey];
-      const { arranged, overflow } = arrangeParts(extracted, nextTarget);
+      const arrangedResult = arrangeParts(extracted, nextTarget);
 
       imageCacheRef.current.clear();
       setTargetKey(nextTargetKey);
-      setParts(arranged);
-      setSourceInfo(`${file.name} · ${sourceCanvas.width} × ${sourceCanvas.height} · ${boxes.length} 个零件`);
+      setParts(arrangedResult.arranged);
+      setSourceInfo(
+        `${file.name} · ${sourceCanvas.width} × ${sourceCanvas.height} · ${boxes.length} 个零件`,
+      );
+      setQuality({
+        threshold: background.threshold,
+        spread: background.spread,
+        foregroundRatio: segmentation.diagnostics.cleanedForegroundRatio,
+        componentCount: boxes.length,
+        packing: arrangedResult.packing,
+      });
+
       setStatus(
-        overflow
-          ? `已完成识别与排版，但有 ${overflow} 个零件无法在目标画布中无缩放放下，请手动调整或切换尺寸。`
-          : `处理完成：背景识别 → 分割 → 无缩放 packing → 居中转换已串联。`,
+        arrangedResult.overflow
+          ? `V2 处理完成，但有 ${arrangedResult.overflow} 个零件无法无缩放放入当前画布；建议切换目标尺寸。`
+          : `V2 验收通过：自适应背景 → 形态学清理 → 8 邻域分割 → MaxRects 无缩放排版。`,
       );
     } catch (error) {
       console.error(error);
@@ -286,15 +348,25 @@ export default function App() {
 
   function relayout(nextKey = targetKey) {
     if (!parts.length) return;
+
     const nextTarget = TARGETS[nextKey];
-    const { arranged, overflow } = arrangeParts(parts, nextTarget);
+    const arrangedResult = arrangeParts(parts, nextTarget);
     setTargetKey(nextKey);
-    setParts(arranged);
+    setParts(arrangedResult.arranged);
     setSelectedId(null);
+    setQuality((current) =>
+      current
+        ? {
+            ...current,
+            packing: arrangedResult.packing,
+          }
+        : current,
+    );
+
     setStatus(
-      overflow
-        ? `已切换到 ${nextTarget.label}，其中 ${overflow} 个零件无法无缩放自动放入。`
-        : `已按 ${nextTarget.label} 重新进行无缩放自动排版。`,
+      arrangedResult.overflow
+        ? `已切换到 ${nextTarget.label}，其中 ${arrangedResult.overflow} 个零件无法无缩放自动放入。`
+        : `已按 ${nextTarget.label} 使用 MaxRects V2 重新排版，零件像素尺寸未改变。`,
     );
   }
 
@@ -313,6 +385,7 @@ export default function App() {
       .find(
         (part) =>
           part.visible &&
+          !part.overflow &&
           point.x >= part.x &&
           point.y >= part.y &&
           point.x <= part.x + part.width &&
@@ -339,17 +412,19 @@ export default function App() {
   function handlePointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
     const drag = dragRef.current;
     if (!drag) return;
-    const point = pointerPosition(event);
 
+    const point = pointerPosition(event);
     setParts((current) =>
       current.map((part) => {
         if (part.id !== drag.id || part.locked) return part;
+
         const maxX = Math.max(0, target.width - part.width);
         const maxY = Math.max(0, target.height - part.height);
         return {
           ...part,
           x: Math.round(Math.min(maxX, Math.max(0, point.x - drag.offsetX))),
           y: Math.round(Math.min(maxY, Math.max(0, point.y - drag.offsetY))),
+          overflow: false,
         };
       }),
     );
@@ -379,8 +454,20 @@ export default function App() {
 
   async function exportCurrent() {
     if (!parts.length) return;
+
     const visible = parts.filter((part) => part.visible);
-    const placements = visible.map(({ id, x, y, width, height }) => ({ id, x, y, width, height }));
+    if (visible.some((part) => part.overflow)) {
+      setStatus('导出已阻止：仍有零件处于 overflow 状态，请切换画布尺寸或删除对应零件。');
+      return;
+    }
+
+    const placements = visible.map(({ id, x, y, width, height }) => ({
+      id,
+      x,
+      y,
+      width,
+      height,
+    }));
 
     if (!validateNoScaleFit(placements, target)) {
       setStatus('导出已阻止：仍有零件超出画布边界。请先重新排版或拖拽到画布内。');
@@ -389,6 +476,7 @@ export default function App() {
 
     setBusy(true);
     setStatus('正在生成高分辨率 PNG 并写入 DPI metadata…');
+
     try {
       const exportCanvas = document.createElement('canvas');
       exportCanvas.width = target.width;
@@ -411,7 +499,10 @@ export default function App() {
       anchor.download = `pattern-layout-${target.width}x${target.height}-${dpi}dpi.png`;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setStatus(`PNG 已生成：${target.label}，${dpi} DPI metadata，所有零件保持原始像素尺寸。`);
+
+      setStatus(
+        `PNG 已生成：${target.label}，${dpi} DPI；导出尺寸与编辑器中零件尺寸保持 1:1。`,
+      );
     } catch (error) {
       console.error(error);
       setStatus(`导出失败：${error instanceof Error ? error.message : '未知错误'}`);
@@ -424,14 +515,14 @@ export default function App() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO</span>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.1</span>
           <h1>图案拆件与无缩放排版</h1>
           <p>
-            上传原图后自动完成背景识别、连通域分割、无缩放 packing，并在画布中手动微调。
-            最终可导出 3500×3500 或 2970×2100 PNG，并写入 DPI。
+            Segmentation V2 使用鲁棒边界背景估计、自适应容差、形态学清理与 8 邻域连通域；
+            Packing V2 使用多策略 MaxRects，在不改变零件像素尺寸的前提下提高排版成功率。
           </p>
         </div>
-        <div className="hero-badge">No Scale</div>
+        <div className="hero-badge">1:1 Pixels</div>
       </section>
 
       <section className="control-grid">
@@ -469,7 +560,7 @@ export default function App() {
               2970×2100
             </button>
           </div>
-          <small>切换尺寸会重新执行无缩放 packing。</small>
+          <small>切换尺寸会重新执行 MaxRects V2，不缩放零件。</small>
         </div>
 
         <div className="control-card">
@@ -481,11 +572,17 @@ export default function App() {
               max="1200"
               step="1"
               value={dpi}
-              onChange={(event) => setDpi(Math.max(72, Number(event.target.value) || 300))}
+              onChange={(event) =>
+                setDpi(Math.max(72, Number(event.target.value) || 300))
+              }
             />
             <span>DPI</span>
           </div>
-          <button className="primary" onClick={() => void exportCurrent()} disabled={!parts.length || busy}>
+          <button
+            className="primary"
+            onClick={() => void exportCurrent()}
+            disabled={!parts.length || busy}
+          >
             导出 PNG
           </button>
         </div>
@@ -499,7 +596,14 @@ export default function App() {
           <i style={{ background: backgroundCss }} />
           背景色
         </span>
-        {overflowCount > 0 && <span className="warning-chip">{overflowCount} 个越界</span>}
+        {quality && (
+          <span className="metric-chip">
+            阈值 {quality.threshold.toFixed(1)}
+          </span>
+        )}
+        {overflowCount > 0 && (
+          <span className="warning-chip">{overflowCount} 个 overflow</span>
+        )}
       </section>
 
       <section className="workspace">
@@ -510,11 +614,25 @@ export default function App() {
               <strong>{target.label}</strong>
             </div>
             <div className="toolbar">
-              <button onClick={() => relayout()} disabled={!parts.length || busy}>自动排版</button>
-              <button onClick={toggleSelectedLock} disabled={!selectedPart || busy}>
+              <button
+                onClick={() => relayout()}
+                disabled={!parts.length || busy}
+              >
+                MaxRects 自动排版
+              </button>
+              <button
+                onClick={toggleSelectedLock}
+                disabled={!selectedPart || busy}
+              >
                 {selectedPart?.locked ? '解锁' : '锁定'}
               </button>
-              <button className="danger" onClick={deleteSelected} disabled={!selectedPart || busy}>删除</button>
+              <button
+                className="danger"
+                onClick={deleteSelected}
+                disabled={!selectedPart || busy}
+              >
+                删除
+              </button>
             </div>
           </div>
 
@@ -531,38 +649,74 @@ export default function App() {
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">+</div>
-                <strong>上传图片开始处理</strong>
-                <span>系统会自动识别背景并拆分零件。</span>
+                <strong>上传图片开始 V2 处理</strong>
+                <span>背景识别、分割和 MaxRects packing 会自动执行。</span>
               </div>
             )}
           </div>
 
           <div className="canvas-help">
-            拖拽零件调整位置 · 点击选中 · 锁定后不可拖动 · Delete / Backspace 可删除
+            拖拽零件调整位置 · 点击选中 · 锁定后不可拖动 · Delete / Backspace 可删除 ·
+            编辑过程不会 resize
           </div>
         </div>
 
         <aside className="parts-panel">
           <div className="panel-heading">
             <div>
-              <span className="control-label">PARTS</span>
+              <span className="control-label">ACCEPTANCE / PARTS</span>
               <strong>{parts.length} 个零件</strong>
             </div>
           </div>
+
+          {quality && (
+            <div className="quality-panel">
+              <div>
+                <span>分割零件</span>
+                <strong>{quality.componentCount}</strong>
+              </div>
+              <div>
+                <span>前景占比</span>
+                <strong>{(quality.foregroundRatio * 100).toFixed(1)}%</strong>
+              </div>
+              <div>
+                <span>背景波动</span>
+                <strong>{quality.spread.toFixed(1)}</strong>
+              </div>
+              <div>
+                <span>MaxRects</span>
+                <strong>{quality.packing.strategy}</strong>
+              </div>
+              <div>
+                <span>成功放置</span>
+                <strong>
+                  {quality.packing.placedCount}/{quality.componentCount}
+                </strong>
+              </div>
+              <div>
+                <span>画布利用率</span>
+                <strong>{(quality.packing.utilization * 100).toFixed(1)}%</strong>
+              </div>
+            </div>
+          )}
 
           <div className="parts-list">
             {parts.map((part) => (
               <button
                 key={part.id}
-                className={`part-row ${selectedId === part.id ? 'selected' : ''}`}
+                className={`part-row ${selectedId === part.id ? 'selected' : ''} ${part.overflow ? 'overflow' : ''}`}
                 onClick={() => setSelectedId(part.id)}
               >
                 <img src={part.imageUrl} alt="" />
                 <span>
                   <strong>{part.name}</strong>
-                  <small>{part.width} × {part.height}px</small>
+                  <small>
+                    {part.width} × {part.height}px
+                  </small>
                 </span>
-                <em>{part.locked ? 'LOCK' : 'FREE'}</em>
+                <em>
+                  {part.overflow ? 'OVERFLOW' : part.locked ? 'LOCK' : 'FREE'}
+                </em>
               </button>
             ))}
             {!parts.length && <div className="parts-empty">暂无零件</div>}
@@ -571,8 +725,11 @@ export default function App() {
       </section>
 
       <footer>
-        <span>背景阈值 {BACKGROUND_THRESHOLD} · 连通域分割 · 无缩放排版</span>
-        <span>PNG pHYs DPI metadata</span>
+        <span>
+          Segmentation V2 · robust border median · adaptive threshold · 3×3 cleanup ·
+          8-connectivity
+        </span>
+        <span>MaxRects V2 · no scale · PNG pHYs DPI metadata</span>
       </footer>
     </main>
   );
