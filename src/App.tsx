@@ -11,11 +11,11 @@ import {
 import { detectOcrTextRegions } from './core/ocr';
 import { renderPart } from './core/alpha';
 import {
-  packMaxRectsWithoutScaling,
+  packIntoMultiplePages,
   type PackingDiagnostics,
 } from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
-import { canvasToPngWithDpi } from './core/png';
+import { buildPagesZip, downloadBlob, renderLayoutPage } from './core/export';
 import type { CanvasSize, PatternPart } from './types';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
@@ -39,6 +39,8 @@ interface QualityReport {
   ocrTextRegions: number;
   morphology: MorphologyStats;
   smoothing: SmoothingMode;
+  pageCount: number;
+  unplaceableCount: number;
 }
 
 interface DebugImages {
@@ -110,38 +112,75 @@ function maskRatio(mask: Uint8Array) {
   return mask.length ? foreground / mask.length : 0;
 }
 
-function arrangeParts(parts: PatternPart[], target: CanvasSize) {
-  const packing = packMaxRectsWithoutScaling(
+function arrangePartsAcrossPages(parts: PatternPart[], target: CanvasSize) {
+  const multi = packIntoMultiplePages(
     parts.map((part) => ({ id: part.id, width: part.width, height: part.height })),
     target,
     GAP,
   );
 
-  const placed = packing.items
-    .filter((item) => item.placed && item.x !== undefined && item.y !== undefined)
-    .map((item) => ({
-      id: item.id,
-      x: item.x!,
-      y: item.y!,
-      width: item.width,
-      height: item.height,
-    }));
+  const positions = new Map<
+    string,
+    { x: number; y: number; pageIndex: number }
+  >();
 
-  const centered = centerLayout(placed, target);
-  const positions = new Map(centered.map((item) => [item.id, item]));
+  for (const page of multi.pages) {
+    const placements = page.items
+      .filter((item) => item.x !== undefined && item.y !== undefined)
+      .map((item) => ({
+        id: item.id,
+        x: item.x!,
+        y: item.y!,
+        width: item.width,
+        height: item.height,
+      }));
+    const centered = centerLayout(placements, target);
+    for (const item of centered) {
+      positions.set(item.id, {
+        x: item.x,
+        y: item.y,
+        pageIndex: page.pageIndex,
+      });
+    }
+  }
 
   const arranged = parts.map((part) => {
     const position = positions.get(part.id);
     if (!position) {
-      return { ...part, x: -part.width - GAP, y: 0, overflow: true };
+      return {
+        ...part,
+        x: -part.width - GAP,
+        y: 0,
+        pageIndex: -1,
+        overflow: true,
+      };
     }
-    return { ...part, x: position.x, y: position.y, overflow: false };
+    return {
+      ...part,
+      x: position.x,
+      y: position.y,
+      pageIndex: position.pageIndex,
+      overflow: false,
+    };
   });
+
+  const firstPacking: PackingDiagnostics =
+    multi.pages[0]?.diagnostics ?? {
+      strategy: 'empty',
+      placedCount: 0,
+      overflowCount: 0,
+      placedArea: 0,
+      canvasArea: target.width * target.height,
+      utilization: 0,
+      boundsWidth: 0,
+      boundsHeight: 0,
+    };
 
   return {
     arranged,
-    overflow: packing.diagnostics.overflowCount,
-    packing: packing.diagnostics,
+    pageCount: multi.totalPages,
+    unplaceableCount: multi.unplaceable.length,
+    packing: firstPacking,
   };
 }
 
@@ -262,6 +301,7 @@ export default function App() {
   const [tool, setTool] = useState<ToolMode>('select');
   const [brushSize, setBrushSize] = useState(28);
   const [historyTick, setHistoryTick] = useState(0);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -272,7 +312,21 @@ export default function App() {
 
   const target = TARGETS[targetKey];
   const selectedPart = parts.find((part) => part.id === selectedIds[0]) ?? null;
-  const overflowCount = parts.filter((part) => part.visible && !isInside(part, target)).length;
+  const pageCount = useMemo(() => {
+    const placed = parts.filter((part) => !part.overflow && (part.pageIndex ?? 0) >= 0);
+    if (!placed.length) return 0;
+    return Math.max(...placed.map((part) => part.pageIndex ?? 0)) + 1;
+  }, [parts]);
+  const currentPageParts = useMemo(
+    () =>
+      parts.filter(
+        (part) =>
+          !part.overflow &&
+          (part.pageIndex ?? 0) === currentPageIndex,
+      ),
+    [parts, currentPageIndex],
+  );
+  const unplaceableCount = parts.filter((part) => part.overflow).length;
 
   const preview = useMemo(() => {
     const maxWidth = 820;
@@ -283,6 +337,22 @@ export default function App() {
       height: Math.round(target.height * scale),
     };
   }, [target]);
+
+  useEffect(() => {
+    if (pageCount > 0 && currentPageIndex >= pageCount) {
+      setCurrentPageIndex(pageCount - 1);
+      setSelectedIds([]);
+    }
+  }, [pageCount, currentPageIndex]);
+
+  function goToPage(index: number) {
+    if (!pageCount) return;
+    const next = Math.max(0, Math.min(pageCount - 1, index));
+    setCurrentPageIndex(next);
+    setSelectedIds([]);
+    paintRef.current = null;
+    dragRef.current = null;
+  }
 
   function pushHistory(snapshot = parts) {
     undoRef.current.push(cloneParts(snapshot));
@@ -334,7 +404,7 @@ export default function App() {
     const sy = preview.height / target.height;
     const paint = paintRef.current;
 
-    for (const part of parts) {
+    for (const part of currentPageParts) {
       if (!part.visible || part.overflow) continue;
 
       let drawable: CanvasImageSource | null = null;
@@ -375,7 +445,7 @@ export default function App() {
         context.restore();
       }
     }
-  }, [parts, target, backgroundCss, selectedIds, preview, renderTick]);
+  }, [currentPageParts, target, backgroundCss, selectedIds, preview, renderTick]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -407,7 +477,8 @@ export default function App() {
     undoRef.current = [];
     redoRef.current = [];
     setHistoryTick((value) => value + 1);
-    setStatus('正在执行 V1.2 分割流程…');
+    setStatus('正在执行 V1.3 分割与自动分页…');
+    setCurrentPageIndex(0);
 
     try {
       const dataUrl = await readFile(file);
@@ -533,7 +604,7 @@ export default function App() {
       if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) nextTargetKey = 'square';
 
       const nextTarget = TARGETS[nextTargetKey];
-      const arrangedResult = arrangeParts(extracted, nextTarget);
+      const arrangedResult = arrangePartsAcrossPages(extracted, nextTarget);
       const allTextRegions = [...geometryRegions, ...ocrRegions];
 
       imageCacheRef.current.clear();
@@ -553,6 +624,8 @@ export default function App() {
         ocrTextRegions: ocrRegions.length,
         morphology: smoothed.stats,
         smoothing,
+        pageCount: arrangedResult.pageCount,
+        unplaceableCount: arrangedResult.unplaceableCount,
       });
       setDebugImages({
         raw: makeMaskPreview(rawMask, sourceCanvas.width, sourceCanvas.height),
@@ -562,9 +635,9 @@ export default function App() {
       });
 
       setStatus(
-        arrangedResult.overflow
-          ? `V1.2 处理完成：已排除 ${allTextRegions.length} 个文字候选，但有 ${arrangedResult.overflow} 个零件 overflow。`
-          : `V1.2 处理完成：排除 ${allTextRegions.length} 个文字候选，平滑 ${smoothing}，MaxRects 0 overflow。`,
+        arrangedResult.unplaceableCount
+          ? `V1.3 自动分页完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布，无法放入。`
+          : `V1.3 自动分页完成：共 ${arrangedResult.pageCount} 页，${boxes.length} 个零件全部无缩放排版成功。`,
       );
     } catch (error) {
       console.error(error);
@@ -578,15 +651,25 @@ export default function App() {
     if (!parts.length) return;
     pushHistory();
     const nextTarget = TARGETS[nextKey];
-    const arrangedResult = arrangeParts(parts, nextTarget);
+    const arrangedResult = arrangePartsAcrossPages(parts, nextTarget);
     setTargetKey(nextKey);
     setParts(arrangedResult.arranged);
+    setCurrentPageIndex(0);
     setSelectedIds([]);
-    setQuality((current) => current ? { ...current, packing: arrangedResult.packing } : current);
+    setQuality((current) =>
+      current
+        ? {
+            ...current,
+            packing: arrangedResult.packing,
+            pageCount: arrangedResult.pageCount,
+            unplaceableCount: arrangedResult.unplaceableCount,
+          }
+        : current,
+    );
     setStatus(
-      arrangedResult.overflow
-        ? `已切换到 ${nextTarget.label}，${arrangedResult.overflow} 个零件无法无缩放放入。`
-        : `已按 ${nextTarget.label} 使用 MaxRects 重新排版，尺寸保持 1:1。`,
+      arrangedResult.unplaceableCount
+        ? `已重新分页：共 ${arrangedResult.pageCount} 页，另有 ${arrangedResult.unplaceableCount} 个超大零件无法放入。`
+        : `已按 ${nextTarget.label} 重新自动分页：共 ${arrangedResult.pageCount} 页，所有零件保持 1:1。`,
     );
   }
 
@@ -599,7 +682,7 @@ export default function App() {
   }
 
   function hitPart(point: { x: number; y: number }) {
-    return [...parts]
+    return [...currentPageParts]
       .reverse()
       .find(
         (part) =>
@@ -727,6 +810,7 @@ export default function App() {
           ...part,
           x: Math.round(Math.min(maxX, Math.max(0, point.x - drag.offsetX))),
           y: Math.round(Math.min(maxY, Math.max(0, point.y - drag.offsetY))),
+          pageIndex: selectedPart.pageIndex ?? currentPageIndex,
           overflow: false,
         };
       }),
@@ -806,6 +890,7 @@ export default function App() {
         y: minY,
         locked: false,
         visible: true,
+        pageIndex: currentPageIndex,
         overflow: false,
         stats: { smoothingApplied: true },
       };
@@ -881,12 +966,8 @@ export default function App() {
   }
 
   async function exportCurrent() {
-    if (!parts.length) return;
-    const visible = parts.filter((part) => part.visible);
-    if (visible.some((part) => part.overflow)) {
-      setStatus('导出已阻止：仍有零件处于 overflow 状态。');
-      return;
-    }
+    if (!currentPageParts.length) return;
+    const visible = currentPageParts.filter((part) => part.visible);
 
     const placements = visible.map(({ id, x, y, width, height }) => ({
       id,
@@ -896,36 +977,64 @@ export default function App() {
       height,
     }));
     if (!validateNoScaleFit(placements, target)) {
-      setStatus('导出已阻止：仍有零件超出画布边界。');
+      setStatus('当前页导出已阻止：仍有零件超出画布边界。');
       return;
     }
 
     setBusy(true);
-    setStatus('正在生成高分辨率 PNG 并写入 DPI metadata…');
+    setStatus(`正在生成第 ${currentPageIndex + 1} 页 PNG…`);
     try {
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = target.width;
-      exportCanvas.height = target.height;
-      const context = exportCanvas.getContext('2d')!;
-      context.fillStyle = backgroundCss;
-      context.fillRect(0, 0, target.width, target.height);
-
-      for (const part of visible) {
-        const image = await loadImage(part.imageUrl);
-        context.drawImage(image, part.x, part.y, part.width, part.height);
-      }
-
-      const blob = await canvasToPngWithDpi(exportCanvas, dpi);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `pattern-layout-${target.width}x${target.height}-${dpi}dpi.png`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setStatus(`PNG 已生成：${target.label} · ${dpi} DPI · 1:1 零件尺寸。`);
+      const blob = await renderLayoutPage(visible, target, backgroundCss, dpi);
+      const digits = Math.max(2, String(Math.max(1, pageCount)).length);
+      const pageNumber = String(currentPageIndex + 1).padStart(digits, '0');
+      downloadBlob(
+        blob,
+        `pattern-layout-p${pageNumber}-${target.width}x${target.height}-${dpi}dpi.png`,
+      );
+      setStatus(
+        `第 ${currentPageIndex + 1}/${pageCount} 页 PNG 已生成 · ${dpi} DPI · 1:1 零件尺寸。`,
+      );
     } catch (error) {
       console.error(error);
       setStatus(`导出失败：${error instanceof Error ? error.message : '未知错误'}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportAllPages() {
+    if (!pageCount) return;
+    setBusy(true);
+    setStatus(`正在生成 ${pageCount} 页 PNG 并打包 ZIP…`);
+
+    try {
+      const pages = Array.from({ length: pageCount }, (_, pageIndex) => ({
+        pageIndex,
+        parts: parts.filter(
+          (part) =>
+            part.visible &&
+            !part.overflow &&
+            (part.pageIndex ?? 0) === pageIndex,
+        ),
+      }));
+      const blob = await buildPagesZip(
+        pages,
+        target,
+        backgroundCss,
+        dpi,
+      );
+      downloadBlob(
+        blob,
+        `pattern-layout-${pageCount}pages-${target.width}x${target.height}-${dpi}dpi.zip`,
+      );
+      setStatus(
+        unplaceableCount
+          ? `已导出 ${pageCount} 页 ZIP；仍有 ${unplaceableCount} 个超大零件无法放入任何页面。`
+          : `全部 ${pageCount} 页已导出为 ZIP，每页均保留 ${dpi} DPI 与 1:1 零件尺寸。`,
+      );
+    } catch (error) {
+      console.error(error);
+      setStatus(`全部页导出失败：${error instanceof Error ? error.message : '未知错误'}`);
     } finally {
       setBusy(false);
     }
@@ -935,14 +1044,14 @@ export default function App() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.2</span>
-          <h1>文字排除与平滑拆件</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.3</span>
+          <h1>自动分页 · 多页排版与导出</h1>
           <p>
-            V1.2 将文字过滤、形态学修复、轮廓平滑和抗锯齿加入自动流水线，
-            并提供画笔、橡皮擦、合并、拆分和 Undo / Redo 作为人工兜底。
+            V1.3 保留文字排除、平滑边缘和人工修正，并将单页 overflow 升级为自动分页：
+            一页放不下就继续生成下一页，最终可导出当前页 PNG 或全部页面 ZIP。
           </p>
         </div>
-        <div className="hero-badge">Clean Edge</div>
+        <div className="hero-badge">Multi Page</div>
       </section>
 
       <section className="control-grid v12-grid">
@@ -1035,10 +1144,18 @@ export default function App() {
             <button
               className="primary"
               onClick={() => void exportCurrent()}
-              disabled={!parts.length || busy}
+              disabled={!currentPageParts.length || busy}
             >
-              导出
+              当前页
             </button>
+          </div>
+          <button
+            className="secondary-export"
+            onClick={() => void exportAllPages()}
+            disabled={!pageCount || busy}
+          >
+            导出全部页 ZIP
+          </button>
           </div>
         </div>
       </section>
@@ -1052,8 +1169,8 @@ export default function App() {
           背景
         </span>
         {quality && <span className="metric-chip">文字 {quality.textRegions}</span>}
-        {quality && <span className="metric-chip">碎片移除 {quality.morphology.removedIslandCount}</span>}
-        {overflowCount > 0 && <span className="warning-chip">{overflowCount} overflow</span>}
+        {pageCount > 0 && <span className="metric-chip">共 {pageCount} 页</span>}
+        {unplaceableCount > 0 && <span className="warning-chip">{unplaceableCount} 个超大零件</span>}
       </section>
 
       <section className="workspace">
@@ -1061,7 +1178,14 @@ export default function App() {
           <div className="panel-heading editor-heading">
             <div>
               <span className="control-label">CANVAS EDITOR</span>
-              <strong>{target.label}</strong>
+              <strong>{target.label} · 第 {pageCount ? currentPageIndex + 1 : 0} / {pageCount} 页</strong>
+              {pageCount > 0 && (
+                <div className="page-nav">
+                  <button onClick={() => goToPage(currentPageIndex - 1)} disabled={currentPageIndex <= 0}>‹</button>
+                  <span>Page {currentPageIndex + 1}</span>
+                  <button onClick={() => goToPage(currentPageIndex + 1)} disabled={currentPageIndex >= pageCount - 1}>›</button>
+                </div>
+              )}
             </div>
             <div className="editor-tools">
               <div className="tool-group">
@@ -1084,7 +1208,7 @@ export default function App() {
               <div className="toolbar">
                 <button onClick={undo} disabled={!undoRef.current.length}>Undo</button>
                 <button onClick={redo} disabled={!redoRef.current.length}>Redo</button>
-                <button onClick={() => relayout()} disabled={!parts.length || busy}>自动排版</button>
+                <button onClick={() => relayout()} disabled={!parts.length || busy}>重新自动分页</button>
                 <button onClick={toggleSelectedLock} disabled={!selectedIds.length || busy}>锁定/解锁</button>
                 <button onClick={() => void mergeSelected()} disabled={selectedIds.length < 2 || busy}>合并</button>
                 <button onClick={() => void splitSelected()} disabled={!selectedPart || busy}>拆分</button>
@@ -1094,7 +1218,7 @@ export default function App() {
           </div>
 
           <div className="canvas-stage">
-            {parts.length ? (
+            {currentPageParts.length ? (
               <canvas
                 ref={canvasRef}
                 className={`editor-canvas tool-${tool}`}
@@ -1106,8 +1230,8 @@ export default function App() {
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">+</div>
-                <strong>上传图片开始 V1.2 处理</strong>
-                <span>默认开启文字排除与标准边缘平滑。</span>
+                <strong>{parts.length ? '当前页暂无零件' : '上传图片开始 V1.3 处理'}</strong>
+                <span>{parts.length ? '可切换其他页或重新自动分页。' : '自动分割后会按需要生成一页或多页。'}</span>
               </div>
             )}
           </div>
@@ -1122,7 +1246,7 @@ export default function App() {
           <div className="panel-heading">
             <div>
               <span className="control-label">QUALITY / PARTS</span>
-              <strong>{parts.length} 个零件</strong>
+              <strong>第 {pageCount ? currentPageIndex + 1 : 0} 页 · {currentPageParts.length} 个零件</strong>
             </div>
             <button className="debug-toggle" onClick={() => setDebugOpen((value) => !value)}>
               {debugOpen ? '收起调试' : '调试视图'}
@@ -1132,12 +1256,13 @@ export default function App() {
           {quality && (
             <div className="quality-panel">
               <div><span>最终零件</span><strong>{quality.componentCount}</strong></div>
+              <div><span>自动分页</span><strong>{pageCount || quality.pageCount} 页</strong></div>
               <div><span>文字排除</span><strong>{quality.textRegions}</strong></div>
               <div><span>几何 / OCR</span><strong>{quality.geometryTextRegions} / {quality.ocrTextRegions}</strong></div>
               <div><span>平滑</span><strong>{quality.smoothing}</strong></div>
               <div><span>填孔</span><strong>{quality.morphology.filledHoleCount}</strong></div>
               <div><span>MaxRects</span><strong>{quality.packing.strategy}</strong></div>
-              <div><span>成功放置</span><strong>{quality.packing.placedCount}/{quality.componentCount}</strong></div>
+              <div><span>当前页零件</span><strong>{currentPageParts.length}</strong></div>
               <div><span>画布利用率</span><strong>{(quality.packing.utilization * 100).toFixed(1)}%</strong></div>
             </div>
           )}
@@ -1152,7 +1277,7 @@ export default function App() {
           )}
 
           <div className="parts-list">
-            {parts.map((part) => (
+            {currentPageParts.map((part) => (
               <button
                 key={part.id}
                 className={`part-row ${selectedIds.includes(part.id) ? 'selected' : ''} ${part.overflow ? 'overflow' : ''}`}
@@ -1176,14 +1301,14 @@ export default function App() {
                 <em>{part.overflow ? 'OVERFLOW' : part.locked ? 'LOCK' : 'FREE'}</em>
               </button>
             ))}
-            {!parts.length && <div className="parts-empty">暂无零件</div>}
+            {!currentPageParts.length && <div className="parts-empty">当前页暂无零件</div>}
           </div>
         </aside>
       </section>
 
       <footer>
-        <span>V1.2 · Geometry/OCR text filter · morphology · contour smoothing · anti-alias</span>
-        <span>Manual repair · merge/split · undo/redo · no-scale MaxRects · PNG DPI</span>
+        <span>V1.3 · text filter · smooth contour · MaxRects V3 · automatic pagination</span>
+        <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
   );
