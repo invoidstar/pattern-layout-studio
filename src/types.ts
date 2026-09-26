@@ -14,4 +14,5 @@ export interface PatternPart {
   y: number;
   locked: boolean;
   visible: boolean;
+  overflow?: boolean;
 }
