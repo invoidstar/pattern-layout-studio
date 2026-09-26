@@ -1,4 +1,4 @@
-import type { CanvasSize, PatternPart } from '../../types';
+import type { CanvasSize, PatternPart } from '../../domain';
 import { canvasToPngWithDpi } from './png';
 
 function loadImage(url: string): Promise<HTMLImageElement> {
