@@ -19,7 +19,6 @@ interface Component {
   height: number;
   area: number;
   fillRatio: number;
-  score: number;
 }
 
 export interface TextFilterResult {
@@ -84,54 +83,40 @@ function collectComponents(
       height: boxHeight,
       area: tail,
       fillRatio: tail / Math.max(1, boxWidth * boxHeight),
-      score: 0,
     });
   }
 
   return result;
 }
 
-function scoreComponent(
-  component: Component,
-  width: number,
-  height: number,
-  strength: TextFilterStrength,
-): number {
-  const imageArea = width * height;
-  const minDim = Math.min(width, height);
-  const maxHeightRatio = strength === 'weak' ? 0.035 : strength === 'strong' ? 0.085 : 0.055;
-  const maxAreaRatio = strength === 'weak' ? 0.0012 : strength === 'strong' ? 0.007 : 0.0035;
-  const heightRatio = component.height / Math.max(1, height);
-  const areaRatio = component.area / Math.max(1, imageArea);
-  const aspect = component.width / Math.max(1, component.height);
-  const thinSide = Math.min(component.width, component.height);
-
-  let score = 0;
-  if (heightRatio <= maxHeightRatio) score += 2;
-  if (areaRatio <= maxAreaRatio) score += 2;
-  if (component.fillRatio < 0.55) score += 2;
-  else if (component.fillRatio < 0.74) score += 1;
-  if (aspect >= 1.8 || aspect <= 0.55) score += 1;
-  if (thinSide <= Math.max(8, minDim * 0.025)) score += 1;
-  if (component.area < 8 || component.width < 2 || component.height < 2) score -= 2;
-
-  return score;
+function boxDistance(a: Component, b: Component): number {
+  const ax1 = a.x + a.width;
+  const ay1 = a.y + a.height;
+  const bx1 = b.x + b.width;
+  const by1 = b.y + b.height;
+  const dx = Math.max(0, b.x - ax1, a.x - bx1);
+  const dy = Math.max(0, b.y - ay1, a.y - by1);
+  return Math.hypot(dx, dy);
 }
 
 function sameTextLine(a: Component, b: Component, width: number): boolean {
   const centerAY = a.y + a.height / 2;
   const centerBY = b.y + b.height / 2;
-  const heightRatio = Math.max(a.height, b.height) / Math.max(1, Math.min(a.height, b.height));
+  const heightRatio =
+    Math.max(a.height, b.height) / Math.max(1, Math.min(a.height, b.height));
   const gap = Math.max(
     0,
     Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width),
   );
-  const verticalTolerance = Math.max(a.height, b.height) * 0.65;
-  const horizontalTolerance = Math.max(width * 0.045, Math.max(a.height, b.height) * 4.5);
+  const verticalTolerance = Math.max(a.height, b.height) * 0.55;
+  const horizontalTolerance = Math.max(
+    width * 0.025,
+    Math.max(a.height, b.height) * 3.5,
+  );
 
   return (
     Math.abs(centerAY - centerBY) <= verticalTolerance &&
-    heightRatio <= 2.6 &&
+    heightRatio <= 2.2 &&
     gap <= horizontalTolerance
   );
 }
@@ -172,6 +157,59 @@ function floodClear(
   return tail;
 }
 
+function mergeRegionBoxes(regions: TextRegion[]): TextRegion[] {
+  const merged = regions.map((region) => ({ ...region }));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    outer:
+    for (let i = 0; i < merged.length; i += 1) {
+      for (let j = i + 1; j < merged.length; j += 1) {
+        const a = merged[i];
+        const b = merged[j];
+        const ax1 = a.x + a.width;
+        const ay1 = a.y + a.height;
+        const bx1 = b.x + b.width;
+        const by1 = b.y + b.height;
+        const yOverlap = Math.min(ay1, by1) - Math.max(a.y, b.y);
+        const xGap = Math.max(0, Math.max(a.x, b.x) - Math.min(ax1, bx1));
+
+        if (
+          yOverlap >= -Math.max(a.height, b.height) * 0.25 &&
+          xGap <= Math.max(a.height, b.height) * 2
+        ) {
+          const x = Math.min(a.x, b.x);
+          const y = Math.min(a.y, b.y);
+          const right = Math.max(ax1, bx1);
+          const bottom = Math.max(ay1, by1);
+          merged[i] = {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+            score: Math.max(a.score, b.score),
+            source: 'geometry',
+          };
+          merged.splice(j, 1);
+          changed = true;
+          break outer;
+        }
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Conservative geometry filter.
+ *
+ * V1.1 edge anti-aliasing can create many tiny foreground islands. Therefore
+ * V1.2 never removes a small component merely because it is small. Candidates
+ * must be far from protected large parts AND belong to a horizontal text-like
+ * cluster. Single ambiguous components are intentionally left for optional OCR.
+ */
 export function filterGeometryText(
   mask: Uint8Array,
   width: number,
@@ -179,45 +217,114 @@ export function filterGeometryText(
   strength: TextFilterStrength = 'medium',
 ): TextFilterResult {
   const components = collectComponents(mask, width, height);
-  const candidates = components
-    .map((component) => ({
-      ...component,
-      score: scoreComponent(component, width, height, strength),
-    }))
-    .filter((component) => component.score >= 3);
+  const imageArea = width * height;
+  const minDim = Math.min(width, height);
+  const config = {
+    weak: {
+      maxHeight: height * 0.03,
+      maxWidth: width * 0.06,
+      maxArea: imageArea * 0.0006,
+      minGroup: 4,
+    },
+    medium: {
+      maxHeight: height * 0.055,
+      maxWidth: width * 0.09,
+      maxArea: imageArea * 0.0015,
+      minGroup: 3,
+    },
+    strong: {
+      maxHeight: height * 0.08,
+      maxWidth: width * 0.12,
+      maxArea: imageArea * 0.003,
+      minGroup: 2,
+    },
+  }[strength];
 
-  const groupSize = new Map<number, number>();
+  const protectedParts = components.filter(
+    (component) =>
+      component.area >= imageArea * 0.002 ||
+      component.height >= height * 0.10 ||
+      component.width >= width * 0.10,
+  );
+  const protectDistance = Math.max(4, minDim * 0.008);
+
+  const candidates = components.filter((component) => {
+    if (component.area < 8 || component.area > config.maxArea) return false;
+    if (component.height > config.maxHeight || component.width > config.maxWidth) return false;
+    if (component.fillRatio > 0.80) return false;
+    return !protectedParts.some(
+      (largePart) =>
+        largePart.seed !== component.seed &&
+        boxDistance(component, largePart) <= protectDistance,
+    );
+  });
+
+  const parent = candidates.map((_, index) => index);
+  const find = (value: number): number => {
+    let current = value;
+    while (parent[current] !== current) {
+      parent[current] = parent[parent[current]];
+      current = parent[current];
+    }
+    return current;
+  };
+  const union = (a: number, b: number) => {
+    const rootA = find(a);
+    const rootB = find(b);
+    if (rootA !== rootB) parent[rootB] = rootA;
+  };
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < candidates.length; j += 1) {
+      if (sameTextLine(candidates[i], candidates[j], width)) union(i, j);
+    }
+  }
+
+  const groups = new Map<number, Component[]>();
   candidates.forEach((component, index) => {
-    let neighbours = 1;
-    candidates.forEach((other, otherIndex) => {
-      if (index === otherIndex) return;
-      if (sameTextLine(component, other, width)) neighbours += 1;
-    });
-    groupSize.set(index, neighbours);
+    const root = find(index);
+    const group = groups.get(root) ?? [];
+    group.push(component);
+    groups.set(root, group);
   });
 
-  const scoreThreshold = strength === 'weak' ? 6 : strength === 'strong' ? 4 : 5;
-  const selected = candidates.filter((component, index) => {
-    const group = groupSize.get(index) ?? 1;
-    return component.score >= scoreThreshold || (group >= 2 && component.score >= 3);
+  const selectedGroups = [...groups.values()].filter((group) => {
+    if (group.length < config.minGroup) return false;
+    const left = Math.min(...group.map((component) => component.x));
+    const top = Math.min(...group.map((component) => component.y));
+    const right = Math.max(...group.map((component) => component.x + component.width));
+    const bottom = Math.max(...group.map((component) => component.y + component.height));
+    const aspect = (right - left) / Math.max(1, bottom - top);
+    return aspect >= 1.3 || group.length >= 4;
   });
 
+  const selected = selectedGroups.flat();
   const output = mask.slice();
   let removedPixels = 0;
   for (const component of selected) {
     removedPixels += floodClear(output, component.seed, width, height);
   }
 
+  const regions = mergeRegionBoxes(
+    selectedGroups.map((group) => {
+      const left = Math.min(...group.map((component) => component.x));
+      const top = Math.min(...group.map((component) => component.y));
+      const right = Math.max(...group.map((component) => component.x + component.width));
+      const bottom = Math.max(...group.map((component) => component.y + component.height));
+      return {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+        score: group.length,
+        source: 'geometry' as const,
+      };
+    }),
+  );
+
   return {
     mask: output,
-    regions: selected.map((component) => ({
-      x: component.x,
-      y: component.y,
-      width: component.width,
-      height: component.height,
-      score: component.score,
-      source: 'geometry' as const,
-    })),
+    regions,
     removedComponentCount: selected.length,
     removedPixels,
   };
