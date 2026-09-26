@@ -22,7 +22,7 @@ import {
 } from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
 import { buildPagesZip, downloadBlob, renderLayoutPage } from './core/export';
-import type { CanvasSize, PatternPart } from './types';
+import type { CanvasSize, PatternPart, SourceBox } from './types';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
   square: { width: 3500, height: 3500, label: '3500 × 3500' },
@@ -67,6 +67,13 @@ interface PaintSession {
   pointerId: number;
 }
 
+interface SourceReference {
+  imageUrl: string;
+  width: number;
+  height: number;
+  name: string;
+}
+
 function rgbCss(r: number, g: number, b: number) {
   return `rgb(${r}, ${g}, ${b})`;
 }
@@ -96,9 +103,33 @@ function cloneParts(parts: PatternPart[]): PatternPart[] {
       ? {
           ...part.stats,
           sourceBox: part.stats.sourceBox ? { ...part.stats.sourceBox } : undefined,
+          sourceBoxes: part.stats.sourceBoxes
+            ? part.stats.sourceBoxes.map((box) => ({ ...box }))
+            : undefined,
         }
       : undefined,
   }));
+}
+
+function sourceBoxesFor(part: PatternPart): SourceBox[] {
+  if (part.stats?.sourceBoxes?.length) {
+    return part.stats.sourceBoxes.map((box) => ({ ...box }));
+  }
+  return part.stats?.sourceBox ? [{ ...part.stats.sourceBox }] : [];
+}
+
+function unionSourceBoxes(boxes: SourceBox[]): SourceBox | undefined {
+  if (!boxes.length) return undefined;
+  const left = Math.min(...boxes.map((box) => box.x));
+  const top = Math.min(...boxes.map((box) => box.y));
+  const right = Math.max(...boxes.map((box) => box.x + box.width));
+  const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
 }
 
 function padBox(box: ComponentBox, width: number, height: number, padding = 3): ComponentBox {
@@ -312,6 +343,7 @@ export default function App() {
   const [brushSize, setBrushSize] = useState(28);
   const [historyTick, setHistoryTick] = useState(0);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
+  const [sourceReference, setSourceReference] = useState<SourceReference | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -337,6 +369,24 @@ export default function App() {
     [parts, currentPageIndex],
   );
   const unplaceableCount = parts.filter((part) => part.overflow).length;
+  const sourceTraceItems = useMemo(
+    () =>
+      currentPageParts.flatMap((part) =>
+        sourceBoxesFor(part).map((box, index) => ({
+          part,
+          box,
+          index,
+        })),
+      ),
+    [currentPageParts],
+  );
+  const selectedSourceBoxes = useMemo(
+    () =>
+      parts
+        .filter((part) => selectedIds.includes(part.id))
+        .flatMap((part) => sourceBoxesFor(part)),
+    [parts, selectedIds],
+  );
 
   const preview = useMemo(() => {
     const maxWidth = 820;
@@ -487,12 +537,19 @@ export default function App() {
     undoRef.current = [];
     redoRef.current = [];
     setHistoryTick((value) => value + 1);
-    setStatus('正在执行 V1.3 分割与自动分页…');
+    setStatus('正在执行 V1.4 分割、来源追踪与自动分页…');
     setCurrentPageIndex(0);
+    setSourceReference(null);
 
     try {
       const dataUrl = await readFile(file);
       const image = await loadImage(dataUrl);
+      setSourceReference({
+        imageUrl: dataUrl,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+        name: file.name,
+      });
       const sourceCanvas = document.createElement('canvas');
       sourceCanvas.width = image.naturalWidth;
       sourceCanvas.height = image.naturalHeight;
@@ -614,6 +671,12 @@ export default function App() {
               width: box.width,
               height: box.height,
             },
+            sourceBoxes: [{
+              x: box.x,
+              y: box.y,
+              width: box.width,
+              height: box.height,
+            }],
           },
         };
       });
@@ -901,6 +964,8 @@ export default function App() {
       }
 
       const mergedUrl = canvas.toDataURL('image/png');
+      const mergedSourceBoxes = selected.flatMap((part) => sourceBoxesFor(part));
+      const mergedSourceBox = unionSourceBoxes(mergedSourceBoxes);
       const merged: PatternPart = {
         id: `merged-${Date.now()}`,
         name: `合并零件 ${selected.length}`,
@@ -914,7 +979,11 @@ export default function App() {
         visible: true,
         pageIndex: currentPageIndex,
         overflow: false,
-        stats: { smoothingApplied: true },
+        stats: {
+          smoothingApplied: true,
+          sourceBox: mergedSourceBox,
+          sourceBoxes: mergedSourceBoxes,
+        },
       };
 
       setParts((current) => [
@@ -958,8 +1027,18 @@ export default function App() {
       }
 
       pushHistory();
+      const parentSourceBoxes = sourceBoxesFor(selectedPart);
       const pieces: PatternPart[] = boxes.map((box, index) => {
         const pieceUrl = cropCanvas(image, box);
+        const mappedSourceBox =
+          parentSourceBoxes.length === 1
+            ? {
+                x: parentSourceBoxes[0].x + box.x,
+                y: parentSourceBoxes[0].y + box.y,
+                width: box.width,
+                height: box.height,
+              }
+            : undefined;
         return {
           id: `split-${Date.now()}-${index}`,
           name: `${selectedPart.name} · ${index + 1}`,
@@ -971,7 +1050,15 @@ export default function App() {
           y: selectedPart.y + box.y,
           locked: false,
           visible: true,
+          pageIndex: selectedPart.pageIndex ?? currentPageIndex,
           overflow: false,
+          stats: {
+            ...(selectedPart.stats ?? {}),
+            sourceBox: mappedSourceBox ?? selectedPart.stats?.sourceBox,
+            sourceBoxes: mappedSourceBox
+              ? [mappedSourceBox]
+              : parentSourceBoxes,
+          },
         };
       });
 
@@ -1063,17 +1150,17 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell v14-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.3.1</span>
-          <h1>自动分页 · 多页排版与导出</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.4</span>
+          <h1>原图追踪 · 多页排版工作台</h1>
           <p>
-            V1.3.1 增加主体优先的内部装饰归并，避免衣服图案、脸部细节等被过度拆分；
-            同时保留文字排除、平滑边缘、自动分页，以及当前页 PNG / 全部页 ZIP 导出。
+            V1.4 在拆件与自动分页之外加入“来源追踪”：选择任意转换后零件，
+            左侧原图会立即标出它来自哪里；手动合并后的零件也可保留多个来源区域。
           </p>
         </div>
-        <div className="hero-badge">Multi Page</div>
+        <div className="hero-badge">Source Trace</div>
       </section>
 
       <section className="control-grid v12-grid">
@@ -1199,10 +1286,108 @@ export default function App() {
         </span>
         {quality && <span className="metric-chip">文字 {quality.textRegions}</span>}
         {pageCount > 0 && <span className="metric-chip">共 {pageCount} 页</span>}
+        {selectedSourceBoxes.length > 0 && (
+          <span className="metric-chip">来源 {selectedSourceBoxes.length} 区域</span>
+        )}
         {unplaceableCount > 0 && <span className="warning-chip">{unplaceableCount} 个超大零件</span>}
       </section>
 
-      <section className="workspace">
+      <section className="workspace v14-workspace">
+        <aside className="source-panel">
+          <div className="panel-heading source-heading">
+            <div>
+              <span className="control-label">SOURCE TRACE</span>
+              <strong>原图定位</strong>
+            </div>
+            <button
+              className="debug-toggle"
+              onClick={() => setDebugOpen((value) => !value)}
+              disabled={!debugImages}
+            >
+              {debugOpen ? '收起调试' : '调试'}
+            </button>
+          </div>
+
+          {sourceReference ? (
+            <>
+              <div className="source-preview-wrap">
+                <div
+                  className="source-image-wrap"
+                  style={{ aspectRatio: `${sourceReference.width} / ${sourceReference.height}` }}
+                >
+                  <img src={sourceReference.imageUrl} alt={sourceReference.name} />
+                  {sourceTraceItems.map(({ part, box, index }) => {
+                    const active = selectedIds.includes(part.id);
+                    return (
+                      <button
+                        key={`${part.id}-source-${index}`}
+                        type="button"
+                        className={`source-box ${active ? 'active' : ''}`}
+                        style={{
+                          left: `${(box.x / sourceReference.width) * 100}%`,
+                          top: `${(box.y / sourceReference.height) * 100}%`,
+                          width: `${(box.width / sourceReference.width) * 100}%`,
+                          height: `${(box.height / sourceReference.height) * 100}%`,
+                        }}
+                        onClick={() => setSelectedIds([part.id])}
+                        title={`${part.name} · x:${box.x} y:${box.y} · ${box.width}×${box.height}`}
+                      >
+                        {active && <span>{index + 1}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="source-meta">
+                <div>
+                  <span>原图</span>
+                  <strong>{sourceReference.width} × {sourceReference.height}</strong>
+                </div>
+                <div>
+                  <span>当前页映射</span>
+                  <strong>{sourceTraceItems.length} 区域</strong>
+                </div>
+              </div>
+
+              <div className="source-selection">
+                {selectedIds.length ? (
+                  <>
+                    <div className="source-selection-title">
+                      <strong>已选 {selectedIds.length} 个零件</strong>
+                      <span>来自 {selectedSourceBoxes.length} 个原图区域</span>
+                    </div>
+                    <div className="source-region-list">
+                      {selectedSourceBoxes.map((box, index) => (
+                        <div key={`selected-source-${index}`}>
+                          <b>{index + 1}</b>
+                          <span>x {box.x} · y {box.y}</span>
+                          <em>{box.width} × {box.height}px</em>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p>点击右侧零件或原图上的框，即可查看转换后的零件来自原图哪个位置。</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="source-empty">
+              <strong>等待原图</strong>
+              <span>上传后这里会显示零件的来源区域。</span>
+            </div>
+          )}
+
+          {debugOpen && debugImages && (
+            <div className="debug-grid source-debug-grid">
+              <figure><img src={debugImages.raw} alt="" /><figcaption>Raw mask</figcaption></figure>
+              <figure><img src={debugImages.afterText} alt="" /><figcaption>文字过滤后</figcaption></figure>
+              <figure><img src={debugImages.smooth} alt="" /><figcaption>平滑 mask</figcaption></figure>
+              <figure><img src={debugImages.textOverlay} alt="" /><figcaption>文字检测框</figcaption></figure>
+            </div>
+          )}
+        </aside>
         <div className="canvas-panel">
           <div className="panel-heading editor-heading">
             <div>
@@ -1277,9 +1462,7 @@ export default function App() {
               <span className="control-label">QUALITY / PARTS</span>
               <strong>第 {pageCount ? currentPageIndex + 1 : 0} 页 · {currentPageParts.length} 个零件</strong>
             </div>
-            <button className="debug-toggle" onClick={() => setDebugOpen((value) => !value)}>
-              {debugOpen ? '收起调试' : '调试视图'}
-            </button>
+            <span className="panel-page-badge">Page {pageCount ? currentPageIndex + 1 : 0}</span>
           </div>
 
           {quality && (
@@ -1296,15 +1479,6 @@ export default function App() {
               <div><span>MaxRects</span><strong>{quality.packing.strategy}</strong></div>
               <div><span>当前页零件</span><strong>{currentPageParts.length}</strong></div>
               <div><span>画布利用率</span><strong>{(quality.packing.utilization * 100).toFixed(1)}%</strong></div>
-            </div>
-          )}
-
-          {debugOpen && debugImages && (
-            <div className="debug-grid">
-              <figure><img src={debugImages.raw} alt="" /><figcaption>Raw mask</figcaption></figure>
-              <figure><img src={debugImages.afterText} alt="" /><figcaption>文字过滤后</figcaption></figure>
-              <figure><img src={debugImages.smooth} alt="" /><figcaption>平滑 mask</figcaption></figure>
-              <figure><img src={debugImages.textOverlay} alt="" /><figcaption>文字检测框</figcaption></figure>
             </div>
           )}
 
@@ -1328,7 +1502,12 @@ export default function App() {
                 <img src={part.imageUrl} alt="" />
                 <span>
                   <strong>{part.name}</strong>
-                  <small>{part.width} × {part.height}px</small>
+                  <small>
+                    {part.width} × {part.height}px
+                    {sourceBoxesFor(part).length
+                      ? ` · 来源 ${sourceBoxesFor(part).length} 区域`
+                      : ''}
+                  </small>
                 </span>
                 <em>{part.overflow ? 'OVERFLOW' : part.locked ? 'LOCK' : 'FREE'}</em>
               </button>
@@ -1339,7 +1518,7 @@ export default function App() {
       </section>
 
       <footer>
-        <span>V1.3.1 · host-aware grouping · text filter · smooth contour · automatic pagination</span>
+        <span>V1.4 · source trace · host-aware grouping · smooth contour · automatic pagination</span>
         <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
