@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   extractComponents,
   outerContoursForMode,
-  type MorphologyStats,
   type SmoothingMode,
   type SplitStrength,
   type TextFilterStrength,
@@ -34,14 +33,10 @@ import {
   sourceRegionsFor,
   unionSourceBoxes,
 } from '../features/provenance/source-regions';
-import {
-  processSourceFile,
-} from '../features/extraction/process-source';
+import { buildProjectFromFiles } from '../features/project/build-project';
 import type {
   PaintSession,
-  ProcessedSourceResult,
   QualityReport,
-  SourceProcessingMetrics,
   SourceReference,
   ToolMode,
 } from '../features/project/model';
@@ -319,122 +314,31 @@ export default function App() {
     setStatus(`准备处理 ${files.length} 张图片并统一排版…`);
 
     try {
-      const batchId = `batch-${Date.now()}`;
-      const results: ProcessedSourceResult[] = [];
-      const failed: string[] = [];
-
-      for (let index = 0; index < files.length; index += 1) {
-        try {
-          const result = await processSourceFile(files[index], {
-            sourceIndex: index,
-            totalSources: files.length,
-            batchId,
-            textExclude,
-            textStrength,
-            ocrEnhanced,
-            smoothing,
-            splitStrength,
-            onStatus: setStatus,
-          });
-          results.push(result);
-        } catch (error) {
-          console.error(`Failed to process ${files[index].name}`, error);
-          failed.push(files[index].name);
-        }
-      }
-
-      if (!results.length) {
-        throw new Error('所有图片均处理失败');
-      }
-
-      const allParts = results.flatMap((result) => result.parts);
-      let nextTargetKey: 'square' | 'a4' = targetKey;
-
-      // Keep the old single-image convenience rule. Multi-image projects keep
-      // the currently selected output canvas because the sources can differ.
-      if (results.length === 1) {
-        const source = results[0].source;
-        if (source.width === 3500 && source.height === 3500) nextTargetKey = 'a4';
-        if (source.width === 2970 && source.height === 2100) nextTargetKey = 'square';
-      }
-
-      const nextTarget = TARGETS[nextTargetKey];
-      setStatus(
-        `已完成 ${results.length} 张图片拆件，正在统一优化 ${allParts.length} 个零件的分页…`,
-      );
-      const arrangedResult = arrangePartsAcrossPages(
-        allParts,
-        nextTarget,
+      const project = await buildProjectFromFiles(files, {
+        targetKey,
+        targets: TARGETS,
         packingGap,
-      );
-
-      const average = (
-        pick: (metrics: SourceProcessingMetrics) => number,
-      ) =>
-        results.reduce((total, result) => total + pick(result.metrics), 0) /
-        Math.max(1, results.length);
-      const sum = (
-        pick: (metrics: SourceProcessingMetrics) => number,
-      ) =>
-        results.reduce((total, result) => total + pick(result.metrics), 0);
-
-      const morphology = results.reduce<MorphologyStats>(
-        (total, result) => ({
-          removedIslandCount:
-            total.removedIslandCount +
-            result.metrics.morphology.removedIslandCount,
-          removedIslandPixels:
-            total.removedIslandPixels +
-            result.metrics.morphology.removedIslandPixels,
-          filledHoleCount:
-            total.filledHoleCount +
-            result.metrics.morphology.filledHoleCount,
-          filledHolePixels:
-            total.filledHolePixels +
-            result.metrics.morphology.filledHolePixels,
-        }),
-        {
-          removedIslandCount: 0,
-          removedIslandPixels: 0,
-          filledHoleCount: 0,
-          filledHolePixels: 0,
-        },
-      );
-
-      const sources = results.map((result) => result.source);
-      imageCacheRef.current.clear();
-      setTargetKey(nextTargetKey);
-      setParts(arrangedResult.arranged);
-      setSourceReferences(sources);
-      setActiveSourceId(sources[0].id);
-      setBackgroundCss(sources[0].backgroundCss);
-      setSourceInfo(
-        `${results.length} 张图片 · ${allParts.length} 个零件${failed.length ? ` · ${failed.length} 张失败` : ''}`,
-      );
-      setQuality({
-        threshold: average((metrics) => metrics.threshold),
-        spread: average((metrics) => metrics.spread),
-        foregroundRatio: average((metrics) => metrics.foregroundRatio),
-        componentCount: allParts.length,
-        packing: arrangedResult.packing,
-        textRegions: sum((metrics) => metrics.textRegions),
-        geometryTextRegions: sum((metrics) => metrics.geometryTextRegions),
-        ocrTextRegions: sum((metrics) => metrics.ocrTextRegions),
-        morphology,
+        textExclude,
+        textStrength,
+        ocrEnhanced,
         smoothing,
         splitStrength,
-        rawComponentCount: sum((metrics) => metrics.rawComponentCount),
-        mergedDecorationCount: sum(
-          (metrics) => metrics.mergedDecorationCount,
-        ),
-        pageCount: arrangedResult.pageCount,
-        unplaceableCount: arrangedResult.unplaceableCount,
+        onStatus: setStatus,
       });
 
+      imageCacheRef.current.clear();
+      setTargetKey(project.targetKey);
+      setParts(project.parts);
+      setSourceReferences(project.sources);
+      setActiveSourceId(project.sources[0]?.id ?? null);
+      setBackgroundCss(project.backgroundCss);
+      setSourceInfo(project.sourceInfo);
+      setQuality(project.quality);
+
       setStatus(
-        arrangedResult.unplaceableCount
-          ? `V1.7 完成：${results.length} 张图片的 ${allParts.length} 个零件已统一排成 ${arrangedResult.pageCount} 页；${arrangedResult.unplaceableCount} 个零件尺寸超过目标画布。`
-          : `V1.7 完成：${results.length} 张图片、${allParts.length} 个零件已统一全局优化为 ${arrangedResult.pageCount} 页。${failed.length ? ` 另有 ${failed.length} 张图片处理失败。` : ''}`,
+        project.quality.unplaceableCount
+          ? `V1.8 完成：${project.sources.length} 张图片的 ${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。`
+          : `V1.8 完成：${project.sources.length} 张图片、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
       );
     } catch (error) {
       console.error(error);
