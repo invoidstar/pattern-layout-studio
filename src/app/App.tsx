@@ -13,7 +13,6 @@ import {
   renderLayoutPage,
 } from '../core/export/pages';
 import type {
-  CanvasSize,
   PatternPart,
   SourceBox,
   SourceRegion,
@@ -57,7 +56,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.7：多图项目、统一分页、跨页移动与精确来源追踪已启用。');
+  const [status, setStatus] = useState('V1.8：模块化架构、多图项目、统一分页与精确来源追踪已启用。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -986,14 +985,14 @@ export default function App() {
     <main className="app-shell v14-shell v16-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.7</span>
-          <h1>多图项目 · Unified Page Layout</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.8</span>
+          <h1>Pattern Layout Studio</h1>
           <p>
-            一次选择多张原图，系统会逐张完成精确拆件，再把所有零件汇入同一个项目统一分页优化；
-            每个零件仍保留自己的原图来源、精确轮廓与跨页编辑能力。
+            多图拆件、精确来源追踪、全局分页优化与人工修正整合在一个浏览器工作台中；
+            V1.8 同步完成模块化重构，让图像算法、项目流程、布局、导出与 UI 各自保持清晰边界。
           </p>
         </div>
-        <div className="hero-badge">Multi Source</div>
+        <div className="hero-badge">Modular</div>
       </section>
 
       <CommandBar
