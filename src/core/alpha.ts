@@ -25,35 +25,40 @@ function extractLocalMask(
   return local;
 }
 
+function rasterBinaryMask(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d')!;
+  const image = context.createImageData(width, height);
+
+  for (let i = 0; i < mask.length; i += 1) {
+    const alpha = mask[i] ? 255 : 0;
+    const offset = i * 4;
+    image.data[offset] = 255;
+    image.data[offset + 1] = 255;
+    image.data[offset + 2] = 255;
+    image.data[offset + 3] = alpha;
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
 function rasterMask(
   mask: Uint8Array,
   width: number,
   height: number,
   mode: SmoothingMode,
 ): HTMLCanvasElement {
-  if (mode === 'off') {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d')!;
-    const image = context.createImageData(width, height);
-    for (let i = 0; i < mask.length; i += 1) {
-      const alpha = mask[i] ? 255 : 0;
-      const offset = i * 4;
-      image.data[offset] = 255;
-      image.data[offset + 1] = 255;
-      image.data[offset + 2] = 255;
-      image.data[offset + 3] = alpha;
-    }
-    context.putImageData(image, 0, 0);
-    return canvas;
-  }
+  if (mode === 'off') return rasterBinaryMask(mask, width, height);
 
   const contour = contourForMode(mask, width, height, mode);
-  if (contour.length < 3) return rasterMask(mask, width, height, 'off');
+  if (contour.length < 3) return rasterBinaryMask(mask, width, height);
 
-  // Supersampling gives a clean 1px anti-aliased boundary while the logical
-  // width/height stay exactly unchanged.
   const scale = mode === 'strong' ? 4 : 3;
   const hi = document.createElement('canvas');
   hi.width = Math.max(1, width * scale);
@@ -79,16 +84,12 @@ function rasterMask(
   return canvas;
 }
 
-export function renderPart(
+function maskedSourceCrop(
   sourceCanvas: HTMLCanvasElement,
-  globalMask: Uint8Array,
   sourceWidth: number,
   box: ComponentBox,
-  mode: SmoothingMode,
-): RenderedPart {
-  const localMask = extractLocalMask(globalMask, sourceWidth, box);
-  const alpha = rasterMask(localMask, box.width, box.height, mode);
-
+  restoreMask: Uint8Array,
+): HTMLCanvasElement {
   const sourceCrop = document.createElement('canvas');
   sourceCrop.width = box.width;
   sourceCrop.height = box.height;
@@ -103,6 +104,34 @@ export function renderPart(
     0,
     box.width,
     box.height,
+  );
+
+  const localRestore = extractLocalMask(restoreMask, sourceWidth, box);
+  sourceContext.globalCompositeOperation = 'destination-in';
+  sourceContext.drawImage(
+    rasterBinaryMask(localRestore, box.width, box.height),
+    0,
+    0,
+  );
+  sourceContext.globalCompositeOperation = 'source-over';
+  return sourceCrop;
+}
+
+export function renderPart(
+  sourceCanvas: HTMLCanvasElement,
+  globalMask: Uint8Array,
+  restoreMask: Uint8Array,
+  sourceWidth: number,
+  box: ComponentBox,
+  mode: SmoothingMode,
+): RenderedPart {
+  const localMask = extractLocalMask(globalMask, sourceWidth, box);
+  const alpha = rasterMask(localMask, box.width, box.height, mode);
+  const sourceCrop = maskedSourceCrop(
+    sourceCanvas,
+    sourceWidth,
+    box,
+    restoreMask,
   );
 
   const part = document.createElement('canvas');
