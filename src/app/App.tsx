@@ -50,14 +50,11 @@ import SourcePanel from '../components/SourcePanel';
 import CommandBar from '../components/CommandBar';
 import CanvasPanel from '../components/CanvasPanel';
 import InspectorPanel from '../components/InspectorPanel';
-
-const TARGETS: Record<'square' | 'a4', CanvasSize> = {
-  square: { width: 3500, height: 3500, label: '3500 × 3500' },
-  a4: { width: 2970, height: 2100, label: '2970 × 2100' },
-};
-
-const GAP = 24;
-const HISTORY_LIMIT = 12;
+import {
+  DEFAULT_PACKING_GAP,
+  HISTORY_LIMIT,
+  TARGETS,
+} from './config';
 
 export default function App() {
   const [parts, setParts] = useState<PatternPart[]>([]);
@@ -81,7 +78,7 @@ export default function App() {
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [sourceReferences, setSourceReferences] = useState<SourceReference[]>([]);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
-  const [packingGap, setPackingGap] = useState(16);
+  const [packingGap, setPackingGap] = useState(DEFAULT_PACKING_GAP);
   const [moveTargetPage, setMoveTargetPage] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
