@@ -59,11 +59,11 @@ button:disabled{cursor:not-allowed;opacity:.45}
 }
 .status-dot{width:8px;height:8px;border-radius:50%;background:#33b56d;box-shadow:0 0 0 4px rgba(51,181,109,.12)}
 .spacer{flex:1}
-.background-chip,.warning-chip{
+.background-chip,.warning-chip,.metric-chip{
   display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border-radius:999px;background:#f2f4f8;color:#5d6678;font-weight:700
 }
 .background-chip i{width:13px;height:13px;border:1px solid #cdd4df;border-radius:50%}
-.warning-chip{background:#fff3d6;color:#946200}
+.metric-chip{background:#eef2ff;color:#4f5fbd;font-weight:800}.warning-chip{background:#fff3d6;color:#946200}
 .workspace{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:14px}
 .canvas-panel,.parts-panel{
   min-width:0;border:1px solid #dfe5ef;border-radius:24px;background:#fff;overflow:hidden;
@@ -99,13 +99,19 @@ button:disabled{cursor:not-allowed;opacity:.45}
 }
 .canvas-help{padding:12px 18px;border-top:1px solid #edf0f5;color:#8b94a7;font-size:12px}
 .parts-panel{display:flex;flex-direction:column;max-height:760px}
+.quality-panel{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:12px;border-bottom:1px solid #edf0f5;background:#fafbfe
+}
+.quality-panel div{padding:10px;border:1px solid #e7ebf3;border-radius:12px;background:#fff}
+.quality-panel span{display:block;color:#939bad;font-size:10px;font-weight:700;letter-spacing:.04em}
+.quality-panel strong{display:block;margin-top:4px;color:#344054;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .parts-list{padding:10px;overflow:auto}
 .part-row{
   width:100%;display:grid;grid-template-columns:54px 1fr auto;align-items:center;gap:10px;
   border:1px solid transparent;border-radius:14px;background:transparent;padding:9px;text-align:left;color:#313a4c
 }
 .part-row:hover{background:#f6f8fb}
-.part-row.selected{border-color:#b8c3ff;background:#f1f3ff}
+.part-row.selected{border-color:#b8c3ff;background:#f1f3ff}.part-row.overflow{border-color:#f4c98a;background:#fff9ed}.part-row.overflow em{color:#b26a19}
 .part-row img{
   width:54px;height:54px;object-fit:contain;border-radius:10px;border:1px solid #e1e6ee;
   background:linear-gradient(45deg,#f3f4f7 25%,#fff 25%,#fff 75%,#f3f4f7 75%) 0 0/12px 12px
