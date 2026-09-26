@@ -162,6 +162,144 @@ export function extractComponents(
   return result.sort((a, b) => b.area - a.area);
 }
 
+
+export type SplitStrength = 'conservative' | 'standard' | 'fine';
+
+export interface ComponentGroupingResult {
+  boxes: ComponentBox[];
+  rawCount: number;
+  mergedDecorationCount: number;
+}
+
+function unionBoxes(group: ComponentBox[]): ComponentBox {
+  const left = Math.min(...group.map((box) => box.x));
+  const top = Math.min(...group.map((box) => box.y));
+  const right = Math.max(...group.map((box) => box.x + box.width));
+  const bottom = Math.max(...group.map((box) => box.y + box.height));
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    area: group.reduce((total, box) => total + box.area, 0),
+  };
+}
+
+/**
+ * Merge small disconnected decorative islands back into a clearly larger host
+ * part when their centre lies inside (or just at the edge of) the host bbox.
+ *
+ * This specifically prevents garment prints, facial details, bow highlights,
+ * emblems and similar internal artwork from becoming independent layout parts.
+ * Genuine neighbouring parts remain separate because proximity alone is not
+ * sufficient: the small component must be spatially contained by the host.
+ */
+export function groupDecorativeComponents(
+  boxes: ComponentBox[],
+  imageWidth: number,
+  imageHeight: number,
+  strength: SplitStrength = 'conservative',
+): ComponentGroupingResult {
+  if (boxes.length < 2) {
+    return {
+      boxes: boxes.map((box) => ({ ...box })),
+      rawCount: boxes.length,
+      mergedDecorationCount: 0,
+    };
+  }
+
+  const config = {
+    conservative: {
+      maxChildRatio: 0.22,
+      minHostAreaRatio: 0.0012,
+      marginRatio: 0.012,
+    },
+    standard: {
+      maxChildRatio: 0.12,
+      minHostAreaRatio: 0.0018,
+      marginRatio: 0.008,
+    },
+    fine: {
+      maxChildRatio: 0.05,
+      minHostAreaRatio: 0.0025,
+      marginRatio: 0.004,
+    },
+  }[strength];
+
+  const imageArea = imageWidth * imageHeight;
+  const indexed = boxes
+    .map((box, index) => ({ ...box, __index: index }))
+    .sort((a, b) => b.area - a.area);
+
+  const parent = new Map<number, number>();
+
+  for (let reverse = indexed.length - 1; reverse >= 0; reverse -= 1) {
+    const child = indexed[reverse];
+    const centerX = child.x + child.width / 2;
+    const centerY = child.y + child.height / 2;
+    const candidates: typeof indexed = [];
+
+    for (const host of indexed) {
+      if (host.__index === child.__index || host.area <= child.area) continue;
+      if (host.area < imageArea * config.minHostAreaRatio) continue;
+      if (child.area / host.area > config.maxChildRatio) continue;
+
+      const marginX = Math.max(3, host.width * config.marginRatio);
+      const marginY = Math.max(3, host.height * config.marginRatio);
+      const contained =
+        centerX >= host.x - marginX &&
+        centerX <= host.x + host.width + marginX &&
+        centerY >= host.y - marginY &&
+        centerY <= host.y + host.height + marginY;
+
+      if (contained) candidates.push(host);
+    }
+
+    if (candidates.length) {
+      // Attach to the smallest valid enclosing host rather than a very large
+      // ancestor bbox. This keeps grouping local to the intended part.
+      const host = candidates.reduce((best, candidate) =>
+        candidate.area < best.area ? candidate : best,
+      );
+      parent.set(child.__index, host.__index);
+    }
+  }
+
+  const rootOf = (index: number) => {
+    let current = index;
+    const seen = new Set<number>();
+    while (parent.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = parent.get(current)!;
+    }
+    return current;
+  };
+
+  const groups = new Map<number, ComponentBox[]>();
+  for (const box of indexed) {
+    const root = rootOf(box.__index);
+    const group = groups.get(root) ?? [];
+    group.push({
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      area: box.area,
+    });
+    groups.set(root, group);
+  }
+
+  const grouped = [...groups.values()]
+    .map(unionBoxes)
+    .sort((a, b) => b.area - a.area);
+
+  return {
+    boxes: grouped,
+    rawCount: boxes.length,
+    mergedDecorationCount: boxes.length - grouped.length,
+  };
+}
+
 export function segmentForeground(
   data: ImageData,
   background: BackgroundModel,
