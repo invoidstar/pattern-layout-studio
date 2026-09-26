@@ -62,6 +62,13 @@ export interface SourceProcessingMetrics {
   mergedDecorationCount: number;
 }
 
+export interface PageStat {
+  pageIndex: number;
+  count: number;
+  usedArea: number;
+  utilization: number;
+}
+
 export interface ProcessedSourceResult {
   source: SourceReference;
   parts: import('../../types').PatternPart[];
