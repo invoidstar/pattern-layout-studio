@@ -1,95 +1,84 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part extraction, source tracing, no-scale layout editing, automatic pagination and PNG/ZIP export.
+Browser-side pattern-part extraction, exact shape masking, source tracing, no-scale multi-page layout editing and PNG/ZIP export.
 
-## V1.4
+## V1.5
 
 The current pipeline is:
 
-**Upload → text exclusion → edge cleanup → host-aware grouping → source trace → multi-page MaxRects → page editing → PNG / ZIP export**
+**Upload → text exclusion → morphology → exact component labels → host-aware logical grouping → exact shape mask → internal RGB preservation → source contours → multi-page MaxRects → repair editor → PNG / ZIP**
 
-### Source Trace
+### Exact shape extraction
 
-V1.4 makes every converted part traceable back to the original uploaded image.
+V1.5 no longer treats a bounding rectangle as the part itself.
 
-- each automatically extracted part stores its exact original crop coordinates
-- selecting a converted part highlights its source region on the original image
-- clicking a source-region box selects the corresponding converted part
-- the source panel shows x / y / width / height in original-image pixels
-- all parts on the current layout page can be seen as lightweight source boxes
-- the selected part receives a stronger source highlight
-- manually merged parts preserve multiple source regions
-- split parts inherit or refine their source coordinates when mapping is unambiguous
+Each significant connected component receives an integer label. After host-aware grouping, every logical part keeps the exact labels that belong to it. The local crop mask is reconstructed from those labels only.
 
-This creates a direct visual relationship:
+This means:
 
-> converted part ↔ original image region
+- unrelated foreground inside the same bounding rectangle is excluded;
+- neighbouring parts no longer contaminate one another;
+- bounding boxes are only storage / crop bounds;
+- alpha comes from the exact logical-part mask.
 
-### V1.4 workspace
+### Preserve original colours
 
-The main editor is now a three-column workstation:
+Internal colours are no longer removed merely because they are close to the global background colour.
 
-1. **Source Trace** — original image, source boxes, source coordinates and debug views
-2. **Canvas Editor** — page navigation and manual layout/repair tools
-3. **Parts / Quality** — current-page part list and processing diagnostics
+For each logical part, background connected to the crop border stays transparent, while enclosed interior regions are restored into the silhouette before the original RGB crop is applied.
 
-On narrower screens the layout automatically collapses to two columns and then one column.
+This prevents face / garment interiors from turning into unintended alpha holes.
 
-### Host-aware part grouping
+### Shape-level source trace
 
-The V1.3.1 over-segmentation fix remains enabled.
+The Source Trace panel now prefers exact contours over rectangular boxes.
 
-Split strength:
+- automatic parts store original-image contours
+- selected parts highlight their real source shape
+- merged parts retain multiple source contours
+- split parts refine the source contour when exact mapping is possible
+- rectangles remain only as a fallback / coordinate summary
 
-- **Conservative (default)** — keep internal artwork with its host part
-- **Standard**
-- **Fine**
+### Split fix
 
-### Automatic multi-page layout
+Split is now an atomic parent replacement:
 
-- MaxRects page 1
-- remaining parts continue to page 2, page 3, ...
-- near-canvas-size parts can receive dedicated pages
-- only parts physically larger than the target canvas are truly unplaceable
-- no resize is used to solve packing
+- parent part is removed
+- child parts are inserted in the same state update
+- stale parent image cache is discarded
+- selection switches to the children
+- source provenance is updated
 
-Targets:
+The parent part cannot remain in the layout after a successful split.
 
+### Brush / eraser rewrite
+
+The repair tools now use continuous stroke interpolation instead of sparse pointer-event dabs.
+
+Restore brush:
+
+- reads from the raw, unmasked source crop
+- restores original RGB + alpha
+- interpolates between pointer samples
+- has a larger transparent repair margin around automatic crops
+
+Eraser uses the same continuous interpolation and removes alpha smoothly along the stroke.
+
+### V1.4 / V1.3 capabilities retained
+
+- three-column Source / Canvas / Parts workspace
+- source coordinate display
+- host-aware over-segmentation reduction
+- text filtering / optional OCR
+- smooth contours
+- automatic multi-page packing
+- current-page PNG
+- all-pages ZIP
 - 3500×3500
 - 2970×2100
-
-### Editing
-
-- page navigation
-- select / multi-select
-- drag
-- lock / unlock
-- brush restore
-- eraser
-- merge
-- split
-- delete
-- Undo / Redo
-- re-pagination
-
-### Export
-
-- current page PNG
-- all pages ZIP
-- configurable DPI
-- PNG `pHYs` metadata
-- no-scale dimensions throughout export
-
-### Quality pipeline retained
-
-- geometry text filtering
-- optional Chinese/English OCR
-- robust background model
-- morphology
-- contour smoothing
-- multiple foreground islands per logical part
-- internal-hole preservation
-- antialiased alpha
+- no-scale dimensions
+- configurable DPI / PNG pHYs metadata
+- merge / split / Undo / Redo
 
 ## Live site
 
@@ -97,11 +86,11 @@ https://invoidstar.github.io/pattern-layout-studio/
 
 ## Documentation
 
+- [V1.5 implementation](docs/V1.5_IMPLEMENTATION.md)
+- [V1.5 acceptance](docs/V1.5_ACCEPTANCE.md)
 - [V1.4 implementation](docs/V1.4_IMPLEMENTATION.md)
 - [V1.4 acceptance](docs/V1.4_ACCEPTANCE.md)
 - [V1.3.1 acceptance](docs/V1.3.1_ACCEPTANCE.md)
-- [V1.3 implementation](docs/V1.3_IMPLEMENTATION.md)
-- [V1.3 acceptance](docs/V1.3_ACCEPTANCE.md)
 
 ## Privacy
 
