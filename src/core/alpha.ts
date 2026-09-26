@@ -1,12 +1,16 @@
 import type { ComponentBox } from './segmentation';
+import { fillEnclosedInterior } from './segmentation';
 import type { SmoothingMode } from './morphology';
 import { holeContoursForMode, outerContoursForMode } from './contour';
+import type { SourcePoint } from '../types';
 
 export interface RenderedPart {
   imageUrl: string;
   sourceImageUrl: string;
+  rawSourceImageUrl: string;
   width: number;
   height: number;
+  sourceContours: SourcePoint[][];
 }
 
 function extractLocalMask(
@@ -53,12 +57,15 @@ function rasterMask(
   width: number,
   height: number,
   mode: SmoothingMode,
+  preserveHoles: boolean,
 ): HTMLCanvasElement {
   if (mode === 'off') return rasterBinaryMask(mask, width, height);
 
   const contours = outerContoursForMode(mask, width, height, mode);
   if (!contours.length) return rasterBinaryMask(mask, width, height);
-  const holes = holeContoursForMode(mask, width, height, mode);
+  const holes = preserveHoles
+    ? holeContoursForMode(mask, width, height, mode)
+    : [];
 
   const scale = mode === 'strong' ? 4 : 3;
   const hi = document.createElement('canvas');
@@ -84,7 +91,8 @@ function rasterMask(
     }
     hiContext.closePath();
   }
-  hiContext.fill('evenodd');
+
+  hiContext.fill(preserveHoles ? 'evenodd' : 'nonzero');
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -96,17 +104,15 @@ function rasterMask(
   return canvas;
 }
 
-function maskedSourceCrop(
+function rawSourceCrop(
   sourceCanvas: HTMLCanvasElement,
-  sourceWidth: number,
   box: ComponentBox,
-  restoreMask: Uint8Array,
 ): HTMLCanvasElement {
   const sourceCrop = document.createElement('canvas');
   sourceCrop.width = box.width;
   sourceCrop.height = box.height;
-  const sourceContext = sourceCrop.getContext('2d')!;
-  sourceContext.drawImage(
+  const context = sourceCrop.getContext('2d')!;
+  context.drawImage(
     sourceCanvas,
     box.x,
     box.y,
@@ -117,48 +123,95 @@ function maskedSourceCrop(
     box.width,
     box.height,
   );
-
-  const localRestore = extractLocalMask(restoreMask, sourceWidth, box);
-  sourceContext.globalCompositeOperation = 'destination-in';
-  sourceContext.drawImage(
-    rasterBinaryMask(localRestore, box.width, box.height),
-    0,
-    0,
-  );
-  sourceContext.globalCompositeOperation = 'source-over';
   return sourceCrop;
 }
 
-export function renderPart(
-  sourceCanvas: HTMLCanvasElement,
-  globalMask: Uint8Array,
-  restoreMask: Uint8Array,
-  sourceWidth: number,
+function sourceContours(
+  mask: Uint8Array,
+  width: number,
+  height: number,
   box: ComponentBox,
   mode: SmoothingMode,
-): RenderedPart {
-  const localMask = extractLocalMask(globalMask, sourceWidth, box);
-  const alpha = rasterMask(localMask, box.width, box.height, mode);
-  const sourceCrop = maskedSourceCrop(
-    sourceCanvas,
-    sourceWidth,
-    box,
-    restoreMask,
+): SourcePoint[][] {
+  return outerContoursForMode(mask, width, height, mode).map((contour) =>
+    contour.map((point) => ({
+      x: point.x + box.x,
+      y: point.y + box.y,
+    })),
   );
+}
+
+/**
+ * Render one logical part from an exact local membership mask.
+ *
+ * The local mask contains only pixels belonging to the selected component
+ * labels, so unrelated foreground inside the same bounding rectangle is never
+ * copied into this part.
+ *
+ * preserveInternalColors=true fills enclosed zero-regions before alpha
+ * generation. This keeps original face/garment colours that were too close to
+ * the global background colour instead of punching transparent holes through
+ * the part.
+ */
+export function renderPartFromLocalMask(
+  sourceCanvas: HTMLCanvasElement,
+  localMask: Uint8Array,
+  box: ComponentBox,
+  mode: SmoothingMode,
+  preserveInternalColors = true,
+  preserveHoles = false,
+): RenderedPart {
+  const shapeMask =
+    preserveInternalColors && !preserveHoles
+      ? fillEnclosedInterior(localMask, box.width, box.height)
+      : localMask.slice();
+
+  const alpha = rasterMask(
+    shapeMask,
+    box.width,
+    box.height,
+    mode,
+    preserveHoles,
+  );
+  const rawCrop = rawSourceCrop(sourceCanvas, box);
 
   const part = document.createElement('canvas');
   part.width = box.width;
   part.height = box.height;
   const partContext = part.getContext('2d')!;
-  partContext.drawImage(sourceCrop, 0, 0);
+  partContext.drawImage(rawCrop, 0, 0);
   partContext.globalCompositeOperation = 'destination-in';
   partContext.drawImage(alpha, 0, 0);
   partContext.globalCompositeOperation = 'source-over';
 
   return {
     imageUrl: part.toDataURL('image/png'),
-    sourceImageUrl: sourceCrop.toDataURL('image/png'),
+    sourceImageUrl: part.toDataURL('image/png'),
+    rawSourceImageUrl: rawCrop.toDataURL('image/png'),
     width: box.width,
     height: box.height,
+    sourceContours: sourceContours(
+      shapeMask,
+      box.width,
+      box.height,
+      box,
+      mode,
+    ),
   };
+}
+
+/**
+ * Backwards-compatible wrapper for callers that still provide a full global
+ * mask. New extraction code should prefer renderPartFromLocalMask().
+ */
+export function renderPart(
+  sourceCanvas: HTMLCanvasElement,
+  globalMask: Uint8Array,
+  _restoreMask: Uint8Array,
+  sourceWidth: number,
+  box: ComponentBox,
+  mode: SmoothingMode,
+): RenderedPart {
+  const localMask = extractLocalMask(globalMask, sourceWidth, box);
+  return renderPartFromLocalMask(sourceCanvas, localMask, box, mode, true, false);
 }
