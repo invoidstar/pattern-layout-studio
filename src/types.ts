@@ -11,6 +11,11 @@ export interface SourceBox {
   height: number;
 }
 
+export interface SourcePoint {
+  x: number;
+  y: number;
+}
+
 export interface PartStats {
   area?: number;
   fillRatio?: number;
@@ -18,6 +23,7 @@ export interface PartStats {
   smoothingApplied?: boolean;
   sourceBox?: SourceBox;
   sourceBoxes?: SourceBox[];
+  sourceContours?: SourcePoint[][];
 }
 
 export interface PatternPart {
@@ -25,6 +31,7 @@ export interface PatternPart {
   name: string;
   imageUrl: string;
   sourceImageUrl?: string;
+  rawSourceImageUrl?: string;
   width: number;
   height: number;
   x: number;
