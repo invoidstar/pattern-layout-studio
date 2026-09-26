@@ -296,3 +296,87 @@ export function packWithoutScaling(
 ): Rectangle[] {
   return packMaxRectsWithoutScaling(items, canvas, gap).items;
 }
+
+export interface PackedPage {
+  pageIndex: number;
+  items: Rectangle[];
+  diagnostics: PackingDiagnostics;
+}
+
+export interface MultiPagePackingResult {
+  pages: PackedPage[];
+  unplaceable: Rectangle[];
+  totalPages: number;
+  placedCount: number;
+}
+
+/**
+ * Packing V3: repeatedly run the existing no-scale MaxRects solver until all
+ * placeable rectangles have been assigned to pages.
+ *
+ * A rectangle is only returned as unplaceable when a fresh empty page cannot
+ * accept it. No width/height is ever changed.
+ */
+export function packIntoMultiplePages(
+  items: Rectangle[],
+  canvas: Canvas,
+  gap = 20,
+): MultiPagePackingResult {
+  let remaining = items.map((item) => ({ ...item, x: undefined, y: undefined, placed: undefined }));
+  const pages: PackedPage[] = [];
+  let safety = 0;
+
+  while (remaining.length && safety < items.length + 4) {
+    safety += 1;
+    const result = packMaxRectsWithoutScaling(remaining, canvas, gap);
+    const placed = result.items.filter(
+      (item) => item.placed && item.x !== undefined && item.y !== undefined,
+    );
+
+    if (!placed.length) break;
+
+    pages.push({
+      pageIndex: pages.length,
+      items: placed.map((item) => ({ ...item })),
+      diagnostics: {
+        ...result.diagnostics,
+        placedCount: placed.length,
+        overflowCount: 0,
+      },
+    });
+
+    const placedIds = new Set(placed.map((item) => item.id));
+    remaining = remaining
+      .filter((item) => !placedIds.has(item.id))
+      .map((item) => ({ ...item, x: undefined, y: undefined, placed: undefined }));
+  }
+
+  // Verify unresolved items individually. This distinguishes a true
+  // over-size part from an unlucky multi-item heuristic outcome.
+  const unplaceable: Rectangle[] = [];
+  for (const item of remaining) {
+    const single = packMaxRectsWithoutScaling([item], canvas, gap);
+    const candidate = single.items[0];
+    if (candidate?.placed && candidate.x !== undefined && candidate.y !== undefined) {
+      pages.push({
+        pageIndex: pages.length,
+        items: [{ ...candidate }],
+        diagnostics: {
+          ...single.diagnostics,
+          placedCount: 1,
+          overflowCount: 0,
+        },
+      });
+    } else {
+      unplaceable.push({ ...item, placed: false });
+    }
+  }
+
+  const placedCount = pages.reduce((total, page) => total + page.items.length, 0);
+  return {
+    pages,
+    unplaceable,
+    totalPages: pages.length,
+    placedCount,
+  };
+}
