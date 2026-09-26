@@ -1,4 +1,4 @@
-import type { CanvasSize } from '../../types';
+import type { CanvasSize } from '../../domain';
 
 export interface PartPlacement {
   id: string;
