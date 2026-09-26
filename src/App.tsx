@@ -342,7 +342,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.3.1：主体优先归并、文字排除、平滑边缘与自动分页已启用。');
+  const [status, setStatus] = useState('V1.6：跨页移动、全局分页优化、精确形状裁切与来源追踪已启用。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -462,6 +462,7 @@ export default function App() {
     if (!pageCount) return;
     const next = Math.max(0, Math.min(pageCount - 1, index));
     setCurrentPageIndex(next);
+    setMoveTargetPage(next);
     setSelectedIds([]);
     paintRef.current = null;
     dragRef.current = null;
@@ -590,7 +591,7 @@ export default function App() {
     undoRef.current = [];
     redoRef.current = [];
     setHistoryTick((value) => value + 1);
-    setStatus('正在执行 V1.5 精确形状裁切、颜色保留与自动分页…');
+    setStatus('正在执行 V1.6 精确裁切、全局分页优化与来源追踪…');
     setCurrentPageIndex(0);
     setSourceReference(null);
 
@@ -788,8 +789,8 @@ export default function App() {
 
       setStatus(
         arrangedResult.unplaceableCount
-          ? `V1.5 精确形状裁切完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布。`
-          : `V1.5 完成：${rawComponentCount} 个组件归并为 ${boxes.length} 个逻辑零件，使用精确成员 mask 裁切，内部颜色已保留。`,
+          ? `V1.6 完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布。`
+          : `V1.6 完成：${rawComponentCount} 个组件归并为 ${boxes.length} 个逻辑零件；全局分页压缩已执行，内部颜色与精确 mask 均保留。`,
       );
     } catch (error) {
       console.error(error);
