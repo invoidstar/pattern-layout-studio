@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { PatternPart } from '../types';
+import type { PatternPart } from '../domain';
 import type {
   PageStat,
   QualityReport,
