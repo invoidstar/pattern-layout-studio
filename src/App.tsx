@@ -1422,26 +1422,38 @@ export default function App() {
                   style={{ aspectRatio: `${sourceReference.width} / ${sourceReference.height}` }}
                 >
                   <img src={sourceReference.imageUrl} alt={sourceReference.name} />
-                  {sourceTraceItems.map(({ part, box, index }) => {
-                    const active = selectedIds.includes(part.id);
-                    return (
-                      <button
-                        key={`${part.id}-source-${index}`}
-                        type="button"
-                        className={`source-box ${active ? 'active' : ''}`}
-                        style={{
-                          left: `${(box.x / sourceReference.width) * 100}%`,
-                          top: `${(box.y / sourceReference.height) * 100}%`,
-                          width: `${(box.width / sourceReference.width) * 100}%`,
-                          height: `${(box.height / sourceReference.height) * 100}%`,
-                        }}
-                        onClick={() => setSelectedIds([part.id])}
-                        title={`${part.name} · x:${box.x} y:${box.y} · ${box.width}×${box.height}`}
-                      >
-                        {active && <span>{index + 1}</span>}
-                      </button>
-                    );
-                  })}
+                  <svg
+                    className="source-shape-layer"
+                    viewBox={`0 0 ${sourceReference.width} ${sourceReference.height}`}
+                    preserveAspectRatio="none"
+                    aria-label="原图精确来源轮廓"
+                  >
+                    {sourceTraceItems.map(({ part, contour, box, index }) => {
+                      const active = selectedIds.includes(part.id);
+                      if (contour?.length) {
+                        return (
+                          <polygon
+                            key={`${part.id}-contour-${index}`}
+                            points={contour.map((point) => `${point.x},${point.y}`).join(' ')}
+                            className={`source-shape ${active ? 'active' : ''}`}
+                            onClick={() => setSelectedIds([part.id])}
+                          />
+                        );
+                      }
+                      if (!box) return null;
+                      return (
+                        <rect
+                          key={`${part.id}-box-${index}`}
+                          x={box.x}
+                          y={box.y}
+                          width={box.width}
+                          height={box.height}
+                          className={`source-shape source-shape-fallback ${active ? 'active' : ''}`}
+                          onClick={() => setSelectedIds([part.id])}
+                        />
+                      );
+                    })}
+                  </svg>
                 </div>
               </div>
 
@@ -1474,7 +1486,7 @@ export default function App() {
                     </div>
                   </>
                 ) : (
-                  <p>点击右侧零件或原图上的框，即可查看转换后的零件来自原图哪个位置。</p>
+                  <p>点击右侧零件或原图上的精确轮廓，即可查看转换后的零件来自原图哪个位置。</p>
                 )}
               </div>
             </>
@@ -1515,7 +1527,7 @@ export default function App() {
               </div>
               {(tool === 'brush' || tool === 'eraser') && (
                 <label className="brush-size">
-                  <span>{brushSize}px</span>
+                  <span>{tool === 'brush' ? '恢复' : '擦除'} · {brushSize}px</span>
                   <input
                     type="range"
                     min="4"
