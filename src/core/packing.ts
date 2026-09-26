@@ -310,6 +310,148 @@ export interface MultiPagePackingResult {
   placedCount: number;
 }
 
+
+function repackFullPage(
+  items: Rectangle[],
+  canvas: Canvas,
+  gap: number,
+): PackingResult | null {
+  if (!items.length) {
+    return packMaxRectsWithoutScaling([], canvas, gap);
+  }
+  const result = packMaxRectsWithoutScaling(
+    items.map((item) => ({
+      id: item.id,
+      width: item.width,
+      height: item.height,
+    })),
+    canvas,
+    gap,
+  );
+  return result.diagnostics.placedCount === items.length ? result : null;
+}
+
+function normalizePage(
+  page: PackedPage,
+  pageIndex: number,
+): PackedPage {
+  return {
+    pageIndex,
+    items: page.items.map((item) => ({ ...item })),
+    diagnostics: {
+      ...page.diagnostics,
+      placedCount: page.items.length,
+      overflowCount: 0,
+    },
+  };
+}
+
+/**
+ * V1.6 global compaction pass.
+ *
+ * First try whole-page merges, then backfill individual items from later pages
+ * into earlier pages. Every accepted move is validated by a fresh MaxRects
+ * solve, so no overlap/no-scale guarantees are preserved.
+ */
+export function compactPackedPages(
+  inputPages: PackedPage[],
+  canvas: Canvas,
+  gap = 20,
+): PackedPage[] {
+  let pages = inputPages.map((page, index) => normalizePage(page, index));
+  let changed = true;
+  let guard = 0;
+
+  while (changed && guard < 128) {
+    guard += 1;
+    changed = false;
+
+    // 1) Try merging a complete later page into an earlier page.
+    outerMerge:
+    for (let later = pages.length - 1; later > 0; later -= 1) {
+      for (let earlier = 0; earlier < later; earlier += 1) {
+        const union = [
+          ...pages[earlier].items,
+          ...pages[later].items,
+        ];
+        const packed = repackFullPage(union, canvas, gap);
+        if (!packed) continue;
+
+        pages[earlier] = {
+          pageIndex: earlier,
+          items: packed.items.filter((item) => item.placed),
+          diagnostics: {
+            ...packed.diagnostics,
+            overflowCount: 0,
+          },
+        };
+        pages.splice(later, 1);
+        pages = pages.map((page, index) => normalizePage(page, index));
+        changed = true;
+        break outerMerge;
+      }
+    }
+    if (changed) continue;
+
+    // 2) Backfill individual parts from later pages into earlier pages.
+    outerBackfill:
+    for (let later = pages.length - 1; later > 0; later -= 1) {
+      const movable = [...pages[later].items].sort(
+        (a, b) => a.width * a.height - b.width * b.height,
+      );
+
+      for (const item of movable) {
+        for (let earlier = 0; earlier < later; earlier += 1) {
+          const packedEarlier = repackFullPage(
+            [...pages[earlier].items, item],
+            canvas,
+            gap,
+          );
+          if (!packedEarlier) continue;
+
+          const remainingLater = pages[later].items.filter(
+            (candidate) => candidate.id !== item.id,
+          );
+          const packedLater = remainingLater.length
+            ? repackFullPage(remainingLater, canvas, gap)
+            : null;
+
+          // If the source page still contains items, it must remain valid.
+          if (remainingLater.length && !packedLater) continue;
+
+          pages[earlier] = {
+            pageIndex: earlier,
+            items: packedEarlier.items.filter((candidate) => candidate.placed),
+            diagnostics: {
+              ...packedEarlier.diagnostics,
+              overflowCount: 0,
+            },
+          };
+
+          if (!remainingLater.length) {
+            pages.splice(later, 1);
+          } else {
+            pages[later] = {
+              pageIndex: later,
+              items: packedLater!.items.filter((candidate) => candidate.placed),
+              diagnostics: {
+                ...packedLater!.diagnostics,
+                overflowCount: 0,
+              },
+            };
+          }
+
+          pages = pages.map((page, index) => normalizePage(page, index));
+          changed = true;
+          break outerBackfill;
+        }
+      }
+    }
+  }
+
+  return pages.map((page, index) => normalizePage(page, index));
+}
+
 /**
  * Packing V3: repeatedly run the existing no-scale MaxRects solver until all
  * placeable rectangles have been assigned to pages.
@@ -396,11 +538,15 @@ export function packIntoMultiplePages(
     }
   }
 
-  const placedCount = pages.reduce((total, page) => total + page.items.length, 0);
+  const compactedPages = compactPackedPages(pages, canvas, gap);
+  const placedCount = compactedPages.reduce(
+    (total, page) => total + page.items.length,
+    0,
+  );
   return {
-    pages,
+    pages: compactedPages,
     unplaceable,
-    totalPages: pages.length,
+    totalPages: compactedPages.length,
     placedCount,
   };
 }
