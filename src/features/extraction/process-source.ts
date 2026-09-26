@@ -26,6 +26,7 @@ import type {
   ProcessedSourceResult,
   SourceProcessingMetrics,
 } from '../project/model';
+import { assertAllowedSourceSize } from './source-validation';
 
 export interface ProcessSourceOptions {
   sourceIndex: number;
@@ -85,6 +86,15 @@ export async function processSourceFile(
   const sourceId = `${batchId}-source-${sourceIndex}`;
   const dataUrl = await readFile(file);
   const image = await loadImage(dataUrl);
+
+  // Input gate: reject unsupported drawing sizes before any mask, OCR,
+  // morphology, contour, or part-generation work starts.
+  assertAllowedSourceSize(
+    file.name,
+    image.naturalWidth,
+    image.naturalHeight,
+  );
+
   const sourceCanvas = document.createElement('canvas');
   sourceCanvas.width = image.naturalWidth;
   sourceCanvas.height = image.naturalHeight;
