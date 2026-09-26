@@ -16,6 +16,12 @@ export interface SourcePoint {
   y: number;
 }
 
+export interface SourceRegion {
+  sourceId: string;
+  box?: SourceBox;
+  contours?: SourcePoint[][];
+}
+
 export interface PartStats {
   area?: number;
   fillRatio?: number;
@@ -24,6 +30,7 @@ export interface PartStats {
   sourceBox?: SourceBox;
   sourceBoxes?: SourceBox[];
   sourceContours?: SourcePoint[][];
+  sourceRegions?: SourceRegion[];
 }
 
 export interface PatternPart {
@@ -32,6 +39,7 @@ export interface PatternPart {
   imageUrl: string;
   sourceImageUrl?: string;
   rawSourceImageUrl?: string;
+  sourceId?: string;
   width: number;
   height: number;
   x: number;
