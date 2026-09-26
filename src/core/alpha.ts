@@ -1,6 +1,6 @@
 import type { ComponentBox } from './segmentation';
 import type { SmoothingMode } from './morphology';
-import { contourForMode, holeContoursForMode } from './contour';
+import { holeContoursForMode, outerContoursForMode } from './contour';
 
 export interface RenderedPart {
   imageUrl: string;
@@ -56,8 +56,8 @@ function rasterMask(
 ): HTMLCanvasElement {
   if (mode === 'off') return rasterBinaryMask(mask, width, height);
 
-  const contour = contourForMode(mask, width, height, mode);
-  if (contour.length < 3) return rasterBinaryMask(mask, width, height);
+  const contours = outerContoursForMode(mask, width, height, mode);
+  if (!contours.length) return rasterBinaryMask(mask, width, height);
   const holes = holeContoursForMode(mask, width, height, mode);
 
   const scale = mode === 'strong' ? 4 : 3;
@@ -68,11 +68,14 @@ function rasterMask(
   hiContext.scale(scale, scale);
   hiContext.fillStyle = '#fff';
   hiContext.beginPath();
-  hiContext.moveTo(contour[0].x + 0.5, contour[0].y + 0.5);
-  for (let i = 1; i < contour.length; i += 1) {
-    hiContext.lineTo(contour[i].x + 0.5, contour[i].y + 0.5);
+
+  for (const contour of contours) {
+    hiContext.moveTo(contour[0].x + 0.5, contour[0].y + 0.5);
+    for (let i = 1; i < contour.length; i += 1) {
+      hiContext.lineTo(contour[i].x + 0.5, contour[i].y + 0.5);
+    }
+    hiContext.closePath();
   }
-  hiContext.closePath();
 
   for (const hole of holes) {
     hiContext.moveTo(hole[0].x + 0.5, hole[0].y + 0.5);
