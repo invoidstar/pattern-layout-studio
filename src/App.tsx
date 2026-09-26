@@ -26,7 +26,13 @@ import {
 } from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
 import { buildPagesZip, downloadBlob, renderLayoutPage } from './core/export';
-import type { CanvasSize, PatternPart, SourceBox, SourcePoint } from './types';
+import type {
+  CanvasSize,
+  PatternPart,
+  SourceBox,
+  SourcePoint,
+  SourceRegion,
+} from './types';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
   square: { width: 3500, height: 3500, label: '3500 × 3500' },
@@ -74,10 +80,32 @@ interface PaintSession {
 }
 
 interface SourceReference {
+  id: string;
   imageUrl: string;
   width: number;
   height: number;
   name: string;
+  backgroundCss: string;
+  debugImages: DebugImages;
+}
+
+interface SourceProcessingMetrics {
+  threshold: number;
+  spread: number;
+  foregroundRatio: number;
+  componentCount: number;
+  textRegions: number;
+  geometryTextRegions: number;
+  ocrTextRegions: number;
+  morphology: MorphologyStats;
+  rawComponentCount: number;
+  mergedDecorationCount: number;
+}
+
+interface ProcessedSourceResult {
+  source: SourceReference;
+  parts: PatternPart[];
+  metrics: SourceProcessingMetrics;
 }
 
 function rgbCss(r: number, g: number, b: number) {
@@ -117,12 +145,75 @@ function cloneParts(parts: PatternPart[]): PatternPart[] {
                 contour.map((point) => ({ ...point })),
               )
             : undefined,
+          sourceRegions: part.stats.sourceRegions
+            ? part.stats.sourceRegions.map((region) => ({
+                ...region,
+                box: region.box ? { ...region.box } : undefined,
+                contours: region.contours
+                  ? region.contours.map((contour) =>
+                      contour.map((point) => ({ ...point })),
+                    )
+                  : undefined,
+              }))
+            : undefined,
         }
       : undefined,
   }));
 }
 
-function sourceBoxesFor(part: PatternPart): SourceBox[] {
+function sourceRegionsFor(part: PatternPart): SourceRegion[] {
+  if (part.stats?.sourceRegions?.length) {
+    return part.stats.sourceRegions.map((region) => ({
+      ...region,
+      box: region.box ? { ...region.box } : undefined,
+      contours: region.contours
+        ? region.contours.map((contour) =>
+            contour.map((point) => ({ ...point })),
+          )
+        : undefined,
+    }));
+  }
+
+  if (!part.sourceId) return [];
+  const boxes = part.stats?.sourceBoxes?.length
+    ? part.stats.sourceBoxes
+    : part.stats?.sourceBox
+      ? [part.stats.sourceBox]
+      : [];
+
+  if (boxes.length) {
+    return boxes.map((box, index) => ({
+      sourceId: part.sourceId!,
+      box: { ...box },
+      contours:
+        index === 0 && part.stats?.sourceContours?.length
+          ? part.stats.sourceContours.map((contour) =>
+              contour.map((point) => ({ ...point })),
+            )
+          : undefined,
+    }));
+  }
+
+  return part.stats?.sourceContours?.length
+    ? [{
+        sourceId: part.sourceId,
+        contours: part.stats.sourceContours.map((contour) =>
+          contour.map((point) => ({ ...point })),
+        ),
+      }]
+    : [];
+}
+
+function sourceBoxesFor(part: PatternPart, sourceId?: string): SourceBox[] {
+  const regions = sourceRegionsFor(part).filter(
+    (region) => !sourceId || region.sourceId === sourceId,
+  );
+  const boxes = regions
+    .map((region) => region.box)
+    .filter((box): box is SourceBox => Boolean(box));
+  if (boxes.length) return boxes;
+
+  if (sourceId && part.sourceId !== sourceId) return [];
   if (part.stats?.sourceBoxes?.length) {
     return part.stats.sourceBoxes.map((box) => ({ ...box }));
   }
@@ -358,7 +449,8 @@ export default function App() {
   const [brushSize, setBrushSize] = useState(28);
   const [historyTick, setHistoryTick] = useState(0);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
-  const [sourceReference, setSourceReference] = useState<SourceReference | null>(null);
+  const [sourceReferences, setSourceReferences] = useState<SourceReference[]>([]);
+  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [packingGap, setPackingGap] = useState(16);
   const [moveTargetPage, setMoveTargetPage] = useState(0);
 
@@ -386,6 +478,13 @@ export default function App() {
     [parts, currentPageIndex],
   );
   const unplaceableCount = parts.filter((part) => part.overflow).length;
+  const activeSource = useMemo(
+    () =>
+      sourceReferences.find((source) => source.id === activeSourceId) ??
+      sourceReferences[0] ??
+      null,
+    [sourceReferences, activeSourceId],
+  );
   const pageStats = useMemo(
     () =>
       Array.from({ length: pageCount }, (_, pageIndex) => {
@@ -414,31 +513,50 @@ export default function App() {
       Math.max(1, pageCount * target.width * target.height)
     : 0;
   const sourceTraceItems = useMemo(
-    () =>
-      currentPageParts.flatMap((part) => {
-        const contours = part.stats?.sourceContours ?? [];
-        if (contours.length) {
-          return contours.map((contour, index) => ({
-            part,
-            contour,
-            box: undefined as SourceBox | undefined,
-            index,
-          }));
-        }
-        return sourceBoxesFor(part).map((box, index) => ({
-          part,
-          contour: undefined as SourcePoint[] | undefined,
-          box,
-          index,
-        }));
-      }),
-    [currentPageParts],
+    () => {
+      if (!activeSource) return [];
+      return currentPageParts.flatMap((part) =>
+        sourceRegionsFor(part)
+          .filter((region) => region.sourceId === activeSource.id)
+          .flatMap((region, regionIndex) => {
+            if (region.contours?.length) {
+              return region.contours.map((contour, contourIndex) => ({
+                part,
+                contour,
+                box: region.box,
+                index: regionIndex * 1000 + contourIndex,
+              }));
+            }
+            return region.box
+              ? [{
+                  part,
+                  contour: undefined as SourcePoint[] | undefined,
+                  box: region.box,
+                  index: regionIndex,
+                }]
+              : [];
+          }),
+      );
+    },
+    [currentPageParts, activeSource],
   );
   const selectedSourceBoxes = useMemo(
+    () => {
+      if (!activeSource) return [];
+      return parts
+        .filter((part) => selectedIds.includes(part.id))
+        .flatMap((part) => sourceBoxesFor(part, activeSource.id));
+    },
+    [parts, selectedIds, activeSource],
+  );
+  const selectedSourceRegionCount = useMemo(
     () =>
       parts
         .filter((part) => selectedIds.includes(part.id))
-        .flatMap((part) => sourceBoxesFor(part)),
+        .reduce(
+          (total, part) => total + sourceRegionsFor(part).length,
+          0,
+        ),
     [parts, selectedIds],
   );
 
@@ -451,6 +569,21 @@ export default function App() {
       height: Math.round(target.height * scale),
     };
   }, [target]);
+
+  useEffect(() => {
+    setDebugImages(activeSource?.debugImages ?? null);
+  }, [activeSource]);
+
+  useEffect(() => {
+    const firstSelected = parts.find((part) => selectedIds.includes(part.id));
+    if (!firstSelected) return;
+    const sourceId =
+      sourceRegionsFor(firstSelected)[0]?.sourceId ??
+      firstSelected.sourceId;
+    if (sourceId && sourceId !== activeSourceId) {
+      setActiveSourceId(sourceId);
+    }
+  }, [selectedIds, parts, activeSourceId]);
 
   useEffect(() => {
     if (pageCount > 0 && currentPageIndex >= pageCount) {
