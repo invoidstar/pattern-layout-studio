@@ -299,13 +299,6 @@ export function filterGeometryText(
   });
 
   const selected = selectedGroups.flat();
-  const output = mask.slice();
-  const clearQueue = new Int32Array(output.length);
-  let removedPixels = 0;
-  for (const component of selected) {
-    removedPixels += floodClear(output, component.seed, width, height, clearQueue);
-  }
-
   const regions = mergeRegionBoxes(
     selectedGroups.map((group) => {
       const left = Math.min(...group.map((component) => component.x));
@@ -322,6 +315,34 @@ export function filterGeometryText(
       };
     }),
   );
+
+  const output = mask.slice();
+  const clearQueue = new Int32Array(output.length);
+  let removedPixels = 0;
+  for (const component of selected) {
+    removedPixels += floodClear(output, component.seed, width, height, clearQueue);
+  }
+
+  // A confirmed text line may contain one or two thicker strokes that do not
+  // individually satisfy the small-component rule. Clear the tight line box
+  // as a final pass. These boxes are only created for clusters that were
+  // already proven to be far from protected large parts.
+  for (const region of regions) {
+    const left = Math.max(0, region.x - 1);
+    const top = Math.max(0, region.y - 1);
+    const right = Math.min(width, region.x + region.width + 1);
+    const bottom = Math.min(height, region.y + region.height + 1);
+    for (let y = top; y < bottom; y += 1) {
+      const row = y * width;
+      for (let x = left; x < right; x += 1) {
+        const index = row + x;
+        if (output[index]) {
+          output[index] = 0;
+          removedPixels += 1;
+        }
+      }
+    }
+  }
 
   return {
     mask: output,
