@@ -4,10 +4,24 @@ export interface CanvasSize {
   label: string;
 }
 
+export interface PartStats {
+  area?: number;
+  fillRatio?: number;
+  textExcluded?: boolean;
+  smoothingApplied?: boolean;
+  sourceBox?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
+
 export interface PatternPart {
   id: string;
   name: string;
   imageUrl: string;
+  sourceImageUrl?: string;
   width: number;
   height: number;
   x: number;
@@ -15,4 +29,5 @@ export interface PatternPart {
   locked: boolean;
   visible: boolean;
   overflow?: boolean;
+  stats?: PartStats;
 }
