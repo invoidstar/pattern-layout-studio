@@ -14,6 +14,7 @@ import type { PatternPart } from '../../domain';
 import type { MorphologyStats } from '../../core/vision/morphology';
 import {
   InvalidSourceSizeError,
+  preflightSourceFiles,
   type InvalidSourceSize,
 } from '../extraction/source-validation';
 
@@ -27,6 +28,7 @@ export interface BuildProjectOptions {
   smoothing: SmoothingMode;
   splitStrength: SplitStrength;
   onStatus?: (message: string) => void;
+  onInvalidSources?: (items: InvalidSourceSize[]) => void;
 }
 
 export interface BuiltProject {
@@ -92,16 +94,26 @@ export async function buildProjectFromFiles(
 ): Promise<BuiltProject> {
   if (!files.length) throw new Error('没有可处理的图片');
 
+  options.onStatus?.(`正在预检 ${files.length} 张图纸尺寸…`);
+  const preflight = await preflightSourceFiles(files);
+  const validFiles = preflight.validFiles;
+  const invalidSources: InvalidSourceSize[] = [
+    ...preflight.invalidSources,
+  ];
+
+  if (invalidSources.length) {
+    options.onInvalidSources?.(invalidSources);
+  }
+
   const batchId = `batch-${Date.now()}`;
   const results: ProcessedSourceResult[] = [];
   const failedFiles: string[] = [];
-  const invalidSources: InvalidSourceSize[] = [];
 
-  for (let index = 0; index < files.length; index += 1) {
+  for (let index = 0; index < validFiles.length; index += 1) {
     try {
-      const result = await processSourceFile(files[index], {
+      const result = await processSourceFile(validFiles[index], {
         sourceIndex: index,
-        totalSources: files.length,
+        totalSources: validFiles.length,
         batchId,
         textExclude: options.textExclude,
         textStrength: options.textStrength,
@@ -120,8 +132,8 @@ export async function buildProjectFromFiles(
         continue;
       }
 
-      console.error(`Failed to process ${files[index].name}`, error);
-      failedFiles.push(files[index].name);
+      console.error(`Failed to process ${validFiles[index].name}`, error);
+      failedFiles.push(validFiles[index].name);
     }
   }
 
