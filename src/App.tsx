@@ -433,7 +433,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.6：跨页移动、全局分页优化、精确形状裁切与来源追踪已启用。');
+  const [status, setStatus] = useState('V1.7：多图项目、统一分页、跨页移动与精确来源追踪已启用。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -2218,6 +2218,7 @@ export default function App() {
 
           {quality && (
             <div className="quality-panel">
+              <div><span>项目原图</span><strong>{sourceReferences.length}</strong></div>
               <div><span>最终零件</span><strong>{quality.componentCount}</strong></div>
               <div><span>原始组件</span><strong>{quality.rawComponentCount}</strong></div>
               <div><span>内部归并</span><strong>{quality.mergedDecorationCount}</strong></div>
