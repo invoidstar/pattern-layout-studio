@@ -4,17 +4,20 @@ export interface CanvasSize {
   label: string;
 }
 
+export interface SourceBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface PartStats {
   area?: number;
   fillRatio?: number;
   textExcluded?: boolean;
   smoothingApplied?: boolean;
-  sourceBox?: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+  sourceBox?: SourceBox;
+  sourceBoxes?: SourceBox[];
 }
 
 export interface PatternPart {
