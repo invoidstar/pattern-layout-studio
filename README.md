@@ -1,63 +1,88 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part segmentation, no-scale packing and PNG export.
+Browser-side pattern-part extraction, no-scale layout editing and PNG export.
 
-## V1.1
+## V1.2
 
-The current V1.1 pipeline is:
+The current pipeline is:
 
-**Upload → robust background estimation → Segmentation V2 → MaxRects Packing V2 → canvas editing → PNG + DPI metadata**
+**Upload → robust background model → text exclusion → morphology cleanup → contour smoothing → MaxRects packing → manual repair → PNG + DPI**
 
-### Segmentation V2
+### Text exclusion
 
-- full-border median background estimation instead of four-corner averaging
-- adaptive background tolerance
-- JPEG/background-noise tolerance
-- fast 3×3 majority cleanup
-- 8-connected component extraction
-- original source pixels are cropped, never resized
+- conservative geometry-based text-line detection is enabled by default
+- protected large parts are never removed just because their edges fragment
+- optional lazy Chinese/English OCR enhancement is available
+- OCR failure automatically falls back to geometry filtering
 
-### Packing V2
+### Smooth edges
 
-- multi-strategy MaxRects Best-Short-Side-Fit
-- tries area / max-side / height / width orderings
-- explicit overflow reporting
-- configurable inter-part gap
-- part width and height remain unchanged
+- closing + opening morphology
+- tiny-island removal
+- small-hole filling
+- 8-connected components
+- outer and internal contour tracing
+- Chaikin smoothing
+- supersampled antialiased alpha
+- even-odd rendering preserves real internal holes
 
-### Canvas editor
+### Manual repair
 
-- select and drag
+- select / multi-select
+- drag
 - lock / unlock
+- brush restore
+- eraser
+- merge
+- split disconnected regions
 - delete
-- automatic re-layout
-- 3500×3500 and 2970×2100 canvases
-- overflow validation before export
+- Undo / Redo
+- Ctrl/Shift multi-select
+- Ctrl+Z / Ctrl+Shift+Z
 
-### Export
+### Debug / acceptance diagnostics
 
-- PNG
-- configurable DPI (300 by default)
+The app can show:
+
+- raw mask
+- post-text-filter mask
+- smoothed mask
+- detected text boxes
+- text count
+- removed-island count
+- filled-hole count
+- final part count
+- MaxRects strategy and utilization
+
+### Layout and export
+
+- 3500×3500
+- 2970×2100
+- no part resizing in packing/editor/export
+- configurable DPI
 - PNG `pHYs` metadata
-- 1:1 part pixel dimensions through the full export path
+- overflow validation before export
 
 ## Live site
 
 https://invoidstar.github.io/pattern-layout-studio/
 
-## Acceptance
+## Real-image acceptance
 
-V1.1 was checked with three real user-supplied pattern-layout images covering:
+V1.2 was checked against five real user-supplied pattern images. The most important cases include:
 
-- white PNG background
-- JPEG compression
-- foreground touching an image edge
-- non-white gray background
+- a 2048×2048 sheet with **3 Chinese annotation lines**: 3 text regions removed, 11/11 intended parts retained
+- a gray-background JPEG with severe edge fragmentation: **87 raw components → 11 intended final parts**
+- white PNG/JPEG pattern sheets where text filtering remains inactive and intended part counts are preserved
 
-Detected major-part counts were **10/10**, **10/10**, and **11/11** respectively. All three cases packed with zero overflow on both target canvas sizes.
+The private source images are not committed to this public repository.
 
-See [docs/V1.1_ACCEPTANCE.md](docs/V1.1_ACCEPTANCE.md) for the detailed acceptance table.
+Detailed documents:
+
+- [V1.2 implementation](docs/V1.2_IMPLEMENTATION.md)
+- [V1.2 acceptance](docs/V1.2_ACCEPTANCE.md)
+- [V1.1 acceptance](docs/V1.1_ACCEPTANCE.md)
 
 ## Privacy
 
-Image processing runs in the browser. The real images used for acceptance are not committed to this public repository.
+Image processing happens in the browser. Uploaded pattern images are not sent to this repository. Optional OCR downloads its OCR runtime/language data only when the OCR enhancement switch is enabled.
