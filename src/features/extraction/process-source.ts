@@ -19,7 +19,7 @@ import {
 } from '../../core/vision/text-filter';
 import { detectOcrTextRegions } from '../../core/vision/ocr';
 import { renderPartFromLocalMask } from '../../core/vision/alpha';
-import type { PatternPart, SourceRegion } from '../../types';
+import type { PatternPart, SourceRegion } from '../../domain';
 import { loadImage, readFile, rgbCss } from '../editor/image-utils';
 import { makeMaskPreview, makeTextOverlay } from '../debug/previews';
 import type {
