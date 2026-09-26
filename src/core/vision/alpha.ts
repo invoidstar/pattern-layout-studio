@@ -2,7 +2,7 @@ import type { ComponentBox } from './segmentation';
 import { fillEnclosedInterior } from './segmentation';
 import type { SmoothingMode } from './morphology';
 import { holeContoursForMode, outerContoursForMode } from './contour';
-import type { SourcePoint } from '../../types';
+import type { SourcePoint } from '../../domain';
 
 export interface RenderedPart {
   imageUrl: string;
