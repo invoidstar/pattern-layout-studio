@@ -1,0 +1,9 @@
+{
+  "name":"pattern-layout-studio",
+  "version":"1.0.0",
+  "private":true,
+  "type":"module",
+  "scripts":{"dev":"vite","build":"tsc -b && vite build"},
+  "dependencies":{"@vitejs/plugin-react":"latest","vite":"latest","typescript":"latest","react":"latest","react-dom":"latest","konva":"latest","react-konva":"latest"},
+  "devDependencies":{}
+}
