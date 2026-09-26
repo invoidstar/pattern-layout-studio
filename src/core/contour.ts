@@ -145,6 +145,61 @@ export function contourForMode(
 
 
 /**
+ * Trace every disconnected foreground island inside one logical part. This is
+ * required after decorative-component grouping: a garment emblem may be
+ * intentionally disconnected in the mask but still belong to the same part.
+ */
+export function outerContoursForMode(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  mode: SmoothingMode,
+): Point[][] {
+  const visited = new Uint8Array(mask.length);
+  const queue = new Int32Array(mask.length);
+  const componentMask = new Uint8Array(mask.length);
+  const contours: Point[][] = [];
+
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    visited[start] = 1;
+
+    while (head < tail) {
+      const current = queue[head++];
+      const x = current % width;
+      const y = Math.floor(current / width);
+
+      for (let dy = -1; dy <= 1; dy += 1) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) continue;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          if (nx < 0 || nx >= width) continue;
+          const next = ny * width + nx;
+          if (!mask[next] || visited[next]) continue;
+          visited[next] = 1;
+          queue[tail++] = next;
+        }
+      }
+    }
+
+    if (tail < 3) continue;
+    for (let i = 0; i < tail; i += 1) componentMask[queue[i]] = 1;
+    const contour = contourForMode(componentMask, width, height, mode);
+    if (contour.length >= 3) contours.push(contour);
+    for (let i = 0; i < tail; i += 1) componentMask[queue[i]] = 0;
+  }
+
+  return contours;
+}
+
+
+/**
  * Trace enclosed background holes so contour smoothing does not accidentally
  * fill legitimate cut-outs inside a part.
  */
