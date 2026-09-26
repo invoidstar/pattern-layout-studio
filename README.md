@@ -338,6 +338,6 @@ Pattern Layout Studio is intentionally browser-first.
 
 **Clean parts. Keep provenance. Pack pages. Export.**
 
-[Live Demo](https://invoidstar.github.io/pattern-layout-studio/) · [Architecture](docs/ARCHITECTURE.md) · [V1.7 Acceptance](docs/V1.7_ACCEPTANCE.md)
+[Live Demo](https://invoidstar.github.io/pattern-layout-studio/) · [Architecture](docs/ARCHITECTURE.md) · [V1.8 Acceptance](docs/V1.8_ACCEPTANCE.md)
 
 </div>
