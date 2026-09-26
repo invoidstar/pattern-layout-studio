@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { estimateBackgroundModel } from './core/background';
-import { buildForegroundMask, extractComponents, type ComponentBox } from './core/segmentation';
+import {
+  buildForegroundMask,
+  extractComponents,
+  groupDecorativeComponents,
+  type ComponentBox,
+  type SplitStrength,
+} from './core/segmentation';
 import { smoothMask, type SmoothingMode, type MorphologyStats } from './core/morphology';
 import {
   filterGeometryText,
@@ -39,6 +45,9 @@ interface QualityReport {
   ocrTextRegions: number;
   morphology: MorphologyStats;
   smoothing: SmoothingMode;
+  splitStrength: SplitStrength;
+  rawComponentCount: number;
+  mergedDecorationCount: number;
   pageCount: number;
   unplaceableCount: number;
 }
@@ -296,6 +305,7 @@ export default function App() {
   const [textStrength, setTextStrength] = useState<TextFilterStrength>('medium');
   const [ocrEnhanced, setOcrEnhanced] = useState(false);
   const [smoothing, setSmoothing] = useState<SmoothingMode>('standard');
+  const [splitStrength, setSplitStrength] = useState<SplitStrength>('conservative');
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugImages, setDebugImages] = useState<DebugImages | null>(null);
   const [tool, setTool] = useState<ToolMode>('select');
@@ -560,6 +570,15 @@ export default function App() {
         smoothed.mask.fill(1);
       }
 
+      const rawComponentCount = boxes.length;
+      const grouping = groupDecorativeComponents(
+        boxes,
+        sourceCanvas.width,
+        sourceCanvas.height,
+        splitStrength,
+      );
+      boxes = grouping.boxes;
+
       const stamp = Date.now();
       const extracted: PatternPart[] = boxes.map((rawBox, index) => {
         const box = padBox(rawBox, sourceCanvas.width, sourceCanvas.height);
@@ -624,6 +643,9 @@ export default function App() {
         ocrTextRegions: ocrRegions.length,
         morphology: smoothed.stats,
         smoothing,
+        splitStrength,
+        rawComponentCount,
+        mergedDecorationCount: grouping.mergedDecorationCount,
         pageCount: arrangedResult.pageCount,
         unplaceableCount: arrangedResult.unplaceableCount,
       });
@@ -637,7 +659,7 @@ export default function App() {
       setStatus(
         arrangedResult.unplaceableCount
           ? `V1.3 自动分页完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布，无法放入。`
-          : `V1.3 自动分页完成：共 ${arrangedResult.pageCount} 页，${boxes.length} 个零件全部无缩放排版成功。`,
+          : `V1.3 完成：${rawComponentCount} 个连通组件归并为 ${boxes.length} 个零件（内部装饰归并 ${grouping.mergedDecorationCount}），共 ${arrangedResult.pageCount} 页。`,
       );
     } catch (error) {
       console.error(error);
@@ -810,7 +832,7 @@ export default function App() {
           ...part,
           x: Math.round(Math.min(maxX, Math.max(0, point.x - drag.offsetX))),
           y: Math.round(Math.min(maxY, Math.max(0, point.y - drag.offsetY))),
-          pageIndex: selectedPart.pageIndex ?? currentPageIndex,
+          pageIndex: part.pageIndex ?? currentPageIndex,
           overflow: false,
         };
       }),
@@ -1102,16 +1124,24 @@ export default function App() {
         </div>
 
         <div className="control-card">
-          <span className="control-label">3 · 边缘平滑</span>
+          <span className="control-label">3 · 边缘与拆分</span>
           <select
             value={smoothing}
             onChange={(event) => setSmoothing(event.target.value as SmoothingMode)}
           >
-            <option value="off">关闭</option>
-            <option value="standard">标准（推荐）</option>
-            <option value="strong">强</option>
+            <option value="off">边缘平滑：关闭</option>
+            <option value="standard">边缘平滑：标准（推荐）</option>
+            <option value="strong">边缘平滑：强</option>
           </select>
-          <small>closing → opening → 去碎片 → 填小孔 → Chaikin → 抗锯齿。</small>
+          <select
+            value={splitStrength}
+            onChange={(event) => setSplitStrength(event.target.value as SplitStrength)}
+          >
+            <option value="conservative">拆分力度：保守（推荐）</option>
+            <option value="standard">拆分力度：标准</option>
+            <option value="fine">拆分力度：精细</option>
+          </select>
+          <small>保守模式会把衣服、脸部、蝴蝶结等主体内部的小图案自动并回主体，避免过度拆分。</small>
         </div>
 
         <div className="control-card">
@@ -1255,6 +1285,9 @@ export default function App() {
           {quality && (
             <div className="quality-panel">
               <div><span>最终零件</span><strong>{quality.componentCount}</strong></div>
+              <div><span>原始组件</span><strong>{quality.rawComponentCount}</strong></div>
+              <div><span>内部归并</span><strong>{quality.mergedDecorationCount}</strong></div>
+              <div><span>拆分力度</span><strong>{quality.splitStrength}</strong></div>
               <div><span>自动分页</span><strong>{pageCount || quality.pageCount} 页</strong></div>
               <div><span>文字排除</span><strong>{quality.textRegions}</strong></div>
               <div><span>几何 / OCR</span><strong>{quality.geometryTextRegions} / {quality.ocrTextRegions}</strong></div>
@@ -1306,7 +1339,7 @@ export default function App() {
       </section>
 
       <footer>
-        <span>V1.3 · text filter · smooth contour · MaxRects V3 · automatic pagination</span>
+        <span>V1.3.1 · host-aware grouping · text filter · smooth contour · automatic pagination</span>
         <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
