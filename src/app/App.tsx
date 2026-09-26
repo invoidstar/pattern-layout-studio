@@ -52,6 +52,8 @@ import type {
 import TrafficStats from '../components/TrafficStats';
 import SourcePanel from '../components/SourcePanel';
 import CommandBar from '../components/CommandBar';
+import CanvasPanel from '../components/CanvasPanel';
+import InspectorPanel from '../components/InspectorPanel';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
   square: { width: 3500, height: 3500, label: '3500 × 3500' },
@@ -192,19 +194,6 @@ export default function App() {
     setSelectedIds([]);
     paintRef.current = null;
     dragRef.current = null;
-  }
-
-  function sourceLabelFor(part: PatternPart) {
-    const ids = [...new Set(
-      sourceRegionsFor(part).map((region) => region.sourceId),
-    )];
-    if (!ids.length && part.sourceId) ids.push(part.sourceId);
-    return ids
-      .map((id) => {
-        const index = sourceReferences.findIndex((source) => source.id === id);
-        return index >= 0 ? `S${index + 1}` : 'Source';
-      })
-      .join('+');
   }
 
   function pushHistory(snapshot = parts) {
@@ -1223,219 +1212,57 @@ export default function App() {
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
         />
-        <div className="canvas-panel">
-          <div className="panel-heading editor-heading">
-            <div>
-              <span className="control-label">CANVAS EDITOR</span>
-              <strong>{target.label}</strong>
-              <span className="canvas-subtitle">
-                Page {pageCount ? currentPageIndex + 1 : 0} / {pageCount}
-                {currentPageStats
-                  ? ` · 利用率 ${(currentPageStats.utilization * 100).toFixed(1)}%`
-                  : ''}
-              </span>
-            </div>
-            <div className="editor-tools">
-              <div className="tool-group">
-                <button className={tool === 'select' ? 'active' : ''} onClick={() => setTool('select')}>选择</button>
-                <button className={tool === 'brush' ? 'active' : ''} onClick={() => setTool('brush')}>画笔</button>
-                <button className={tool === 'eraser' ? 'active' : ''} onClick={() => setTool('eraser')}>橡皮擦</button>
-              </div>
-              {(tool === 'brush' || tool === 'eraser') && (
-                <label className="brush-size">
-                  <span>{tool === 'brush' ? '恢复' : '擦除'} · {brushSize}px</span>
-                  <input
-                    type="range"
-                    min="4"
-                    max="160"
-                    value={brushSize}
-                    onChange={(event) => setBrushSize(Number(event.target.value))}
-                  />
-                </label>
-              )}
-              <div className="toolbar">
-                <button onClick={undo} disabled={!undoRef.current.length}>Undo</button>
-                <button onClick={redo} disabled={!redoRef.current.length}>Redo</button>
-                <button onClick={() => relayout()} disabled={!parts.length || busy}>重新自动分页</button>
-                <button onClick={toggleSelectedLock} disabled={!selectedIds.length || busy}>锁定/解锁</button>
-                <button onClick={() => void mergeSelected()} disabled={selectedIds.length < 2 || busy}>合并</button>
-                <button onClick={() => void splitSelected()} disabled={!selectedPart || busy}>拆分</button>
-                <button className="danger" onClick={deleteSelected} disabled={!selectedIds.length || busy}>删除</button>
-              </div>
-            </div>
-          </div>
-
-          {pageCount > 0 && (
-            <div className="page-strip">
-              {pageStats.map((page) => (
-                <button
-                  key={page.pageIndex}
-                  className={`page-chip ${page.pageIndex === currentPageIndex ? 'active' : ''}`}
-                  onClick={() => goToPage(page.pageIndex)}
-                >
-                  <b>P{page.pageIndex + 1}</b>
-                  <span>{page.count} 件</span>
-                  <em>{(page.utilization * 100).toFixed(0)}%</em>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="canvas-stage">
-            {currentPageParts.length ? (
-              <canvas
-                ref={canvasRef}
-                className={`editor-canvas tool-${tool}`}
-                onPointerDown={(event) => void handlePointerDown(event)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={stopInteraction}
-                onPointerCancel={stopInteraction}
-              />
-            ) : (
-              <div className="empty-state">
-                <div className="empty-icon">+</div>
-                <strong>{parts.length ? '当前页暂无零件' : '上传图片开始 V1.7 项目处理'}</strong>
-                <span>{parts.length ? '可切换其他页或重新自动分页。' : '多张图片会先逐张拆件，再统一生成全局 Page。'}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="canvas-help">
-            Ctrl / Shift 点击多选 · 恢复画笔连续从原始 RGB 补回像素 · 橡皮擦可切断后再“拆分” ·
-            拆分会原子替换父零件 · Ctrl+Z / Ctrl+Shift+Z 撤销/恢复
-          </div>
-        </div>
-
-        <aside className="parts-panel">
-          <div className="panel-heading inspector-heading">
-            <div>
-              <span className="control-label">INSPECTOR</span>
-              <strong>Page {pageCount ? currentPageIndex + 1 : 0}</strong>
-            </div>
-            <span className="panel-page-badge">
-              {currentPageParts.length} parts
-            </span>
-          </div>
-
-          <div className="page-manager">
-            <div className="inspector-section-title">
-              <span>跨页移动</span>
-              <em>{selectedIds.length ? `已选 ${selectedIds.length}` : '未选择'}</em>
-            </div>
-            <div className="page-transfer">
-              <select
-                value={moveTargetPage}
-                onChange={(event) => setMoveTargetPage(Number(event.target.value))}
-                disabled={!pageCount}
-              >
-                {pageStats.map((page) => (
-                  <option key={page.pageIndex} value={page.pageIndex}>
-                    Page {page.pageIndex + 1} · {(page.utilization * 100).toFixed(0)}%
-                  </option>
-                ))}
-                <option value={pageCount}>新建 Page {pageCount + 1}</option>
-              </select>
-              <button
-                onClick={() => moveSelectedToPage(moveTargetPage)}
-                disabled={!selectedIds.length || busy}
-              >
-                移动
-              </button>
-            </div>
-            <div className="transfer-shortcuts">
-              <button
-                onClick={() => moveSelectedToPage(Math.max(0, currentPageIndex - 1))}
-                disabled={!selectedIds.length || currentPageIndex <= 0 || busy}
-              >
-                ← 前一页
-              </button>
-              <button
-                onClick={() => moveSelectedToPage(Math.min(pageCount, currentPageIndex + 1))}
-                disabled={!selectedIds.length || busy}
-              >
-                后一页 →
-              </button>
-            </div>
-          </div>
-
-          <div className="packing-manager">
-            <div className="inspector-section-title">
-              <span>页面利用率</span>
-              <em>全局回填已开启</em>
-            </div>
-            <label className="gap-control">
-              <span>零件间距</span>
-              <input
-                type="range"
-                min="4"
-                max="32"
-                step="2"
-                value={packingGap}
-                onChange={(event) => setPackingGap(Number(event.target.value))}
-              />
-              <b>{packingGap}px</b>
-            </label>
-            <button
-              className="optimize-pages"
-              onClick={() => relayout()}
-              disabled={!parts.length || busy}
-            >
-              全局优化分页
-            </button>
-          </div>
-
-          {quality && (
-            <div className="quality-panel">
-              <div><span>项目原图</span><strong>{sourceReferences.length}</strong></div>
-              <div><span>最终零件</span><strong>{quality.componentCount}</strong></div>
-              <div><span>原始组件</span><strong>{quality.rawComponentCount}</strong></div>
-              <div><span>内部归并</span><strong>{quality.mergedDecorationCount}</strong></div>
-              <div><span>拆分力度</span><strong>{quality.splitStrength}</strong></div>
-              <div><span>自动分页</span><strong>{pageCount || quality.pageCount} 页</strong></div>
-              <div><span>文字排除</span><strong>{quality.textRegions}</strong></div>
-              <div><span>几何 / OCR</span><strong>{quality.geometryTextRegions} / {quality.ocrTextRegions}</strong></div>
-              <div><span>平滑</span><strong>{quality.smoothing}</strong></div>
-              <div><span>填孔</span><strong>{quality.morphology.filledHoleCount}</strong></div>
-              <div><span>MaxRects</span><strong>{quality.packing.strategy}</strong></div>
-              <div><span>当前页零件</span><strong>{currentPageParts.length}</strong></div>
-              <div><span>当前页利用率</span><strong>{((currentPageStats?.utilization ?? 0) * 100).toFixed(1)}%</strong></div>
-              <div><span>整体利用率</span><strong>{(overallUtilization * 100).toFixed(1)}%</strong></div>
-            </div>
-          )}
-
-          <div className="parts-list">
-            {currentPageParts.map((part) => (
-              <button
-                key={part.id}
-                className={`part-row ${selectedIds.includes(part.id) ? 'selected' : ''} ${part.overflow ? 'overflow' : ''}`}
-                onClick={(event) => {
-                  if (event.ctrlKey || event.metaKey || event.shiftKey) {
-                    setSelectedIds((current) =>
-                      current.includes(part.id)
-                        ? current.filter((id) => id !== part.id)
-                        : [...current, part.id],
-                    );
-                  } else {
-                    setSelectedIds([part.id]);
-                  }
-                }}
-              >
-                <img src={part.imageUrl} alt="" />
-                <span>
-                  <strong>{part.name}</strong>
-                  <small>
-                    {part.width} × {part.height}px
-                    {sourceRegionsFor(part).length
-                      ? ` · ${sourceLabelFor(part)} · 来源 ${sourceRegionsFor(part).length} 区域`
-                      : ''}
-                  </small>
-                </span>
-                <em>{part.overflow ? 'OVERFLOW' : part.locked ? 'LOCK' : 'FREE'}</em>
-              </button>
-            ))}
-            {!currentPageParts.length && <div className="parts-empty">当前页暂无零件</div>}
-          </div>
-        </aside>
+        <CanvasPanel
+          targetLabel={target.label}
+          pageCount={pageCount}
+          currentPageIndex={currentPageIndex}
+          currentPageStats={currentPageStats}
+          pageStats={pageStats}
+          tool={tool}
+          setTool={setTool}
+          brushSize={brushSize}
+          setBrushSize={setBrushSize}
+          canUndo={Boolean(undoRef.current.length)}
+          canRedo={Boolean(redoRef.current.length)}
+          onUndo={undo}
+          onRedo={redo}
+          onRelayout={() => relayout()}
+          hasParts={Boolean(parts.length)}
+          busy={busy}
+          selectedCount={selectedIds.length}
+          canSplit={Boolean(selectedPart)}
+          onToggleLock={toggleSelectedLock}
+          onMerge={() => void mergeSelected()}
+          onSplit={() => void splitSelected()}
+          onDelete={deleteSelected}
+          onPageChange={goToPage}
+          currentPagePartsLength={currentPageParts.length}
+          canvasRef={canvasRef}
+          onPointerDown={(event) => void handlePointerDown(event)}
+          onPointerMove={handlePointerMove}
+          onPointerUp={stopInteraction}
+          onPointerCancel={stopInteraction}
+        />
+        <InspectorPanel
+          pageCount={pageCount}
+          currentPageIndex={currentPageIndex}
+          currentPageParts={currentPageParts}
+          selectedIds={selectedIds}
+          busy={busy}
+          pageStats={pageStats}
+          moveTargetPage={moveTargetPage}
+          setMoveTargetPage={setMoveTargetPage}
+          onMoveSelected={moveSelectedToPage}
+          packingGap={packingGap}
+          setPackingGap={setPackingGap}
+          onOptimizePages={() => relayout()}
+          hasParts={Boolean(parts.length)}
+          quality={quality}
+          sourceReferences={sourceReferences}
+          currentPageStats={currentPageStats}
+          overallUtilization={overallUtilization}
+          setSelectedIds={setSelectedIds}
+        />
       </section>
 
       <footer className="app-footer">
