@@ -23,7 +23,6 @@ import type {
   CanvasSize,
   PatternPart,
   SourceBox,
-  SourcePoint,
   SourceRegion,
 } from '../types';
 import {
@@ -43,7 +42,6 @@ import {
   processSourceFile,
 } from '../features/extraction/process-source';
 import type {
-  DebugImages,
   PaintSession,
   ProcessedSourceResult,
   QualityReport,
@@ -52,6 +50,8 @@ import type {
   ToolMode,
 } from '../features/project/model';
 import TrafficStats from '../components/TrafficStats';
+import SourcePanel from '../components/SourcePanel';
+import CommandBar from '../components/CommandBar';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
   square: { width: 3500, height: 3500, label: '3500 × 3500' },
@@ -77,8 +77,6 @@ export default function App() {
   const [ocrEnhanced, setOcrEnhanced] = useState(false);
   const [smoothing, setSmoothing] = useState<SmoothingMode>('standard');
   const [splitStrength, setSplitStrength] = useState<SplitStrength>('conservative');
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [debugImages, setDebugImages] = useState<DebugImages | null>(null);
   const [tool, setTool] = useState<ToolMode>('select');
   const [brushSize, setBrushSize] = useState(28);
   const [historyTick, setHistoryTick] = useState(0);
@@ -112,13 +110,6 @@ export default function App() {
     [parts, currentPageIndex],
   );
   const unplaceableCount = parts.filter((part) => part.overflow).length;
-  const activeSource = useMemo(
-    () =>
-      sourceReferences.find((source) => source.id === activeSourceId) ??
-      sourceReferences[0] ??
-      null,
-    [sourceReferences, activeSourceId],
-  );
   const pageStats = useMemo(
     () =>
       Array.from({ length: pageCount }, (_, pageIndex) => {
@@ -146,43 +137,6 @@ export default function App() {
     ? pageStats.reduce((total, page) => total + page.usedArea, 0) /
       Math.max(1, pageCount * target.width * target.height)
     : 0;
-  const sourceTraceItems = useMemo(
-    () => {
-      if (!activeSource) return [];
-      return currentPageParts.flatMap((part) =>
-        sourceRegionsFor(part)
-          .filter((region) => region.sourceId === activeSource.id)
-          .flatMap((region, regionIndex) => {
-            if (region.contours?.length) {
-              return region.contours.map((contour, contourIndex) => ({
-                part,
-                contour,
-                box: region.box,
-                index: regionIndex * 1000 + contourIndex,
-              }));
-            }
-            return region.box
-              ? [{
-                  part,
-                  contour: undefined as SourcePoint[] | undefined,
-                  box: region.box,
-                  index: regionIndex,
-                }]
-              : [];
-          }),
-      );
-    },
-    [currentPageParts, activeSource],
-  );
-  const selectedSourceBoxes = useMemo(
-    () => {
-      if (!activeSource) return [];
-      return parts
-        .filter((part) => selectedIds.includes(part.id))
-        .flatMap((part) => sourceBoxesFor(part, activeSource.id));
-    },
-    [parts, selectedIds, activeSource],
-  );
   const selectedSourceRegionCount = useMemo(
     () =>
       parts
@@ -203,10 +157,6 @@ export default function App() {
       height: Math.round(target.height * scale),
     };
   }, [target]);
-
-  useEffect(() => {
-    setDebugImages(activeSource?.debugImages ?? null);
-  }, [activeSource]);
 
   useEffect(() => {
     const firstSelected = parts.find((part) => selectedIds.includes(part.id));
@@ -378,7 +328,6 @@ export default function App() {
     setBusy(true);
     setSelectedIds([]);
     setQuality(null);
-    setDebugImages(null);
     setSourceReferences([]);
     setActiveSourceId(null);
     undoRef.current = [];
@@ -476,7 +425,6 @@ export default function App() {
       setParts(arrangedResult.arranged);
       setSourceReferences(sources);
       setActiveSourceId(sources[0].id);
-      setDebugImages(sources[0].debugImages);
       setBackgroundCss(sources[0].backgroundCss);
       setSourceInfo(
         `${results.length} 张图片 · ${allParts.length} 个零件${failed.length ? ` · ${failed.length} 张失败` : ''}`,
@@ -1222,119 +1170,30 @@ export default function App() {
         <div className="hero-badge">Multi Source</div>
       </section>
 
-      <section className="control-grid v12-grid v16-commandbar">
-        <label className="upload-card">
-          <span className="control-label">1 · 上传图片</span>
-          <strong>{busy ? '批量处理中…' : '选择一张或多张图片'}</strong>
-          <small>{sourceInfo}</small>
-          <input
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            multiple
-            disabled={busy}
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              if (files.length) void processFiles(files);
-              event.currentTarget.value = '';
-            }}
-          />
-        </label>
-
-        <div className="control-card">
-          <span className="control-label">2 · 文字排除</span>
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={textExclude}
-              onChange={(event) => setTextExclude(event.target.checked)}
-            />
-            <span>排除文字（默认开启）</span>
-          </label>
-          <select
-            value={textStrength}
-            onChange={(event) => setTextStrength(event.target.value as TextFilterStrength)}
-            disabled={!textExclude}
-          >
-            <option value="weak">过滤强度：弱</option>
-            <option value="medium">过滤强度：中</option>
-            <option value="strong">过滤强度：强</option>
-          </select>
-          <label className="switch-row compact">
-            <input
-              type="checkbox"
-              checked={ocrEnhanced}
-              onChange={(event) => setOcrEnhanced(event.target.checked)}
-              disabled={!textExclude}
-            />
-            <span>中英 OCR 增强（较慢）</span>
-          </label>
-        </div>
-
-        <div className="control-card">
-          <span className="control-label">3 · 边缘与拆分</span>
-          <select
-            value={smoothing}
-            onChange={(event) => setSmoothing(event.target.value as SmoothingMode)}
-          >
-            <option value="off">边缘平滑：关闭</option>
-            <option value="standard">边缘平滑：标准（推荐）</option>
-            <option value="strong">边缘平滑：强</option>
-          </select>
-          <select
-            value={splitStrength}
-            onChange={(event) => setSplitStrength(event.target.value as SplitStrength)}
-          >
-            <option value="conservative">拆分力度：保守（推荐）</option>
-            <option value="standard">拆分力度：标准</option>
-            <option value="fine">拆分力度：精细</option>
-          </select>
-          <small>保守模式会把内部装饰并回主体。页面间距可在右侧 Inspector 中调整。</small>
-        </div>
-
-        <div className="control-card">
-          <span className="control-label">4 · 目标与导出</span>
-          <div className="segmented">
-            <button
-              className={targetKey === 'square' ? 'active' : ''}
-              onClick={() => relayout('square')}
-              disabled={!parts.length || busy}
-            >
-              3500²
-            </button>
-            <button
-              className={targetKey === 'a4' ? 'active' : ''}
-              onClick={() => relayout('a4')}
-              disabled={!parts.length || busy}
-            >
-              2970×2100
-            </button>
-          </div>
-          <div className="export-inline">
-            <input
-              type="number"
-              min="72"
-              max="1200"
-              value={dpi}
-              onChange={(event) => setDpi(Math.max(72, Number(event.target.value) || 300))}
-            />
-            <span>DPI</span>
-            <button
-              className="primary"
-              onClick={() => void exportCurrent()}
-              disabled={!currentPageParts.length || busy}
-            >
-              当前页
-            </button>
-          </div>
-          <button
-            className="secondary-export"
-            onClick={() => void exportAllPages()}
-            disabled={!pageCount || busy}
-          >
-            导出全部页 ZIP
-          </button>
-        </div>
-      </section>
+      <CommandBar
+        busy={busy}
+        sourceInfo={sourceInfo}
+        onFiles={(files) => void processFiles(files)}
+        textExclude={textExclude}
+        setTextExclude={setTextExclude}
+        textStrength={textStrength}
+        setTextStrength={setTextStrength}
+        ocrEnhanced={ocrEnhanced}
+        setOcrEnhanced={setOcrEnhanced}
+        smoothing={smoothing}
+        setSmoothing={setSmoothing}
+        splitStrength={splitStrength}
+        setSplitStrength={setSplitStrength}
+        targetKey={targetKey}
+        onTargetChange={relayout}
+        hasParts={Boolean(parts.length)}
+        dpi={dpi}
+        setDpi={setDpi}
+        canExportCurrent={Boolean(currentPageParts.length)}
+        canExportAll={Boolean(pageCount)}
+        onExportCurrent={() => void exportCurrent()}
+        onExportAll={() => void exportAllPages()}
+      />
 
       <section className="status-row">
         <div className="status-dot" />
@@ -1356,133 +1215,14 @@ export default function App() {
       </section>
 
       <section className="workspace v14-workspace">
-        <aside className="source-panel">
-          <div className="panel-heading source-heading">
-            <div>
-              <span className="control-label">SOURCE TRACE</span>
-              <strong>原图定位</strong>
-            </div>
-            <span className="panel-page-badge">
-              {sourceReferences.length} sources
-            </span>
-            <button
-              className="debug-toggle"
-              onClick={() => setDebugOpen((value) => !value)}
-              disabled={!debugImages}
-            >
-              {debugOpen ? '收起调试' : '调试'}
-            </button>
-          </div>
-
-          {activeSource ? (
-            <>
-              {sourceReferences.length > 1 && (
-                <div className="source-tabs">
-                  {sourceReferences.map((source, index) => (
-                    <button
-                      key={source.id}
-                      className={source.id === activeSource.id ? 'active' : ''}
-                      onClick={() => setActiveSourceId(source.id)}
-                      title={source.name}
-                    >
-                      <img src={source.imageUrl} alt="" />
-                      <span>S{index + 1}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="source-preview-wrap">
-                <div
-                  className="source-image-wrap"
-                  style={{ aspectRatio: `${activeSource.width} / ${activeSource.height}` }}
-                >
-                  <img src={activeSource.imageUrl} alt={activeSource.name} />
-                  <svg
-                    className="source-shape-layer"
-                    viewBox={`0 0 ${activeSource.width} ${activeSource.height}`}
-                    preserveAspectRatio="none"
-                    aria-label="原图精确来源轮廓"
-                  >
-                    {sourceTraceItems.map(({ part, contour, box, index }) => {
-                      const active = selectedIds.includes(part.id);
-                      if (contour?.length) {
-                        return (
-                          <polygon
-                            key={`${part.id}-contour-${index}`}
-                            points={contour.map((point) => `${point.x},${point.y}`).join(' ')}
-                            className={`source-shape ${active ? 'active' : ''}`}
-                            onClick={() => setSelectedIds([part.id])}
-                          />
-                        );
-                      }
-                      if (!box) return null;
-                      return (
-                        <rect
-                          key={`${part.id}-box-${index}`}
-                          x={box.x}
-                          y={box.y}
-                          width={box.width}
-                          height={box.height}
-                          className={`source-shape source-shape-fallback ${active ? 'active' : ''}`}
-                          onClick={() => setSelectedIds([part.id])}
-                        />
-                      );
-                    })}
-                  </svg>
-                </div>
-              </div>
-
-              <div className="source-meta">
-                <div>
-                  <span>原图</span>
-                  <strong>{activeSource.width} × {activeSource.height}</strong>
-                </div>
-                <div>
-                  <span>{activeSource.name}</span>
-                  <strong>{sourceTraceItems.length} 个当前页映射</strong>
-                </div>
-              </div>
-
-              <div className="source-selection">
-                {selectedIds.length ? (
-                  <>
-                    <div className="source-selection-title">
-                      <strong>已选 {selectedIds.length} 个零件</strong>
-                      <span>
-                        当前原图 {selectedSourceBoxes.length} 区域 · 总计 {selectedSourceRegionCount}
-                      </span>
-                    </div>
-                    <div className="source-region-list">
-                      {selectedSourceBoxes.map((box, index) => (
-                        <div key={`selected-source-${index}`}>
-                          <b>{index + 1}</b>
-                          <span>x {box.x} · y {box.y}</span>
-                          <em>{box.width} × {box.height}px</em>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p>点击右侧零件或原图上的精确轮廓，即可查看转换后的零件来自原图哪个位置。</p>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className="source-empty">
-              <strong>等待图片项目</strong>
-              <span>可一次选择多张图片，处理后在这里切换查看来源。</span>
-            </div>
-          )}
-
-          {debugOpen && debugImages && (
-            <div className="debug-grid source-debug-grid">
-              <figure><img src={debugImages.raw} alt="" /><figcaption>Raw mask</figcaption></figure>
-              <figure><img src={debugImages.afterText} alt="" /><figcaption>文字过滤后</figcaption></figure>
-              <figure><img src={debugImages.smooth} alt="" /><figcaption>平滑 mask</figcaption></figure>
-              <figure><img src={debugImages.textOverlay} alt="" /><figcaption>文字检测框</figcaption></figure>
-            </div>
-          )}
-        </aside>
+        <SourcePanel
+          sources={sourceReferences}
+          activeSourceId={activeSourceId}
+          onSourceChange={setActiveSourceId}
+          currentPageParts={currentPageParts}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+        />
         <div className="canvas-panel">
           <div className="panel-heading editor-heading">
             <div>
