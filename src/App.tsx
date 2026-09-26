@@ -577,12 +577,17 @@ export default function App() {
   useEffect(() => {
     const firstSelected = parts.find((part) => selectedIds.includes(part.id));
     if (!firstSelected) return;
-    const sourceId =
-      sourceRegionsFor(firstSelected)[0]?.sourceId ??
-      firstSelected.sourceId;
-    if (sourceId && sourceId !== activeSourceId) {
-      setActiveSourceId(sourceId);
+
+    const sourceIds = [...new Set(
+      sourceRegionsFor(firstSelected).map((region) => region.sourceId),
+    )];
+    if (firstSelected.sourceId && !sourceIds.includes(firstSelected.sourceId)) {
+      sourceIds.unshift(firstSelected.sourceId);
     }
+
+    if (!sourceIds.length) return;
+    if (activeSourceId && sourceIds.includes(activeSourceId)) return;
+    setActiveSourceId(sourceIds[0]);
   }, [selectedIds, parts, activeSourceId]);
 
   useEffect(() => {
