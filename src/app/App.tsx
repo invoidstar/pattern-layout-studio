@@ -7,13 +7,7 @@ import {
   type SplitStrength,
   type TextFilterStrength,
 } from '../core/vision';
-import {
-  packMaxRectsWithoutScaling,
-} from '../core/layout/packing';
-import {
-  centerLayout,
-  validateNoScaleFit,
-} from '../core/layout/converter';
+import { validateNoScaleFit } from '../core/layout/converter';
 import {
   buildPagesZip,
   downloadBlob,
@@ -29,9 +23,11 @@ import {
   cropCanvas,
   loadImage,
 } from '../features/editor/image-utils';
+import { arrangePartsAcrossPages } from '../features/layout/project-layout';
 import {
-  arrangePartsAcrossPages,
-} from '../features/layout/project-layout';
+  normalizeManualPages,
+  packPageParts,
+} from '../features/layout/page-editor';
 import {
   cloneParts,
   sourceBoxesFor,
@@ -483,66 +479,6 @@ export default function App() {
     );
   }
 
-  function packPageParts(pageParts: PatternPart[]) {
-    const result = packMaxRectsWithoutScaling(
-      pageParts.map((part) => ({
-        id: part.id,
-        width: part.width,
-        height: part.height,
-      })),
-      target,
-      packingGap,
-    );
-    if (result.diagnostics.placedCount !== pageParts.length) return null;
-
-    const centered = centerLayout(
-      result.items
-        .filter(
-          (item) =>
-            item.placed &&
-            item.x !== undefined &&
-            item.y !== undefined,
-        )
-        .map((item) => ({
-          id: item.id,
-          x: item.x!,
-          y: item.y!,
-          width: item.width,
-          height: item.height,
-        })),
-      target,
-    );
-    return new Map(centered.map((item) => [item.id, item]));
-  }
-
-  function normalizeManualPages(
-    workingParts: PatternPart[],
-  ): {
-    parts: PatternPart[];
-    oldToNew: Map<number, number>;
-  } {
-    const usedPages = [...new Set(
-      workingParts
-        .filter((part) => !part.overflow && (part.pageIndex ?? -1) >= 0)
-        .map((part) => part.pageIndex ?? 0),
-    )].sort((a, b) => a - b);
-
-    const oldToNew = new Map(
-      usedPages.map((oldPage, newPage) => [oldPage, newPage]),
-    );
-
-    return {
-      oldToNew,
-      parts: workingParts.map((part) => {
-        if (part.overflow || (part.pageIndex ?? -1) < 0) return part;
-        return {
-          ...part,
-          pageIndex: oldToNew.get(part.pageIndex ?? 0) ?? 0,
-        };
-      }),
-    };
-  }
-
   function moveSelectedToPage(targetPageIndex: number) {
     const selected = parts.filter(
       (part) => selectedIds.includes(part.id) && !part.overflow,
@@ -576,7 +512,7 @@ export default function App() {
           )
         : [];
 
-    const targetPack = packPageParts([...targetExisting, ...selected]);
+    const targetPack = packPageParts([...targetExisting, ...selected], target, packingGap);
     if (!targetPack) {
       setStatus(
         `Page ${requestedPage + 1} 无法完整容纳所选 ${selected.length} 个零件；布局未改变。`,
@@ -610,7 +546,7 @@ export default function App() {
           (part.pageIndex ?? 0) === sourcePage,
       );
       if (!remaining.length) continue;
-      const sourcePack = packPageParts(remaining);
+      const sourcePack = packPageParts(remaining, target, packingGap);
       if (!sourcePack) continue;
       nextParts = nextParts.map((part) => {
         const position = sourcePack.get(part.id);
