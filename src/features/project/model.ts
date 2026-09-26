@@ -71,6 +71,6 @@ export interface PageStat {
 
 export interface ProcessedSourceResult {
   source: SourceReference;
-  parts: import('../../types').PatternPart[];
+  parts: import('../../domain').PatternPart[];
   metrics: SourceProcessingMetrics;
 }
