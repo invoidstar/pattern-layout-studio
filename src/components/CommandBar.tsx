@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { SmoothingMode } from '../core/vision/morphology';
 import type { SplitStrength } from '../core/vision/segmentation';
 import type { TextFilterStrength } from '../core/vision/text-filter';
+import { ALLOWED_SOURCE_SIZE_LABEL } from '../features/extraction/source-validation';
 
 interface CommandBarProps {
   busy: boolean;
@@ -58,6 +59,9 @@ export default function CommandBar({
         <span className="control-label">1 · 上传图片</span>
         <strong>{busy ? '批量处理中…' : '选择一张或多张图片'}</strong>
         <small>{sourceInfo}</small>
+        <small className="input-size-hint">
+          仅支持 {ALLOWED_SOURCE_SIZE_LABEL}
+        </small>
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
