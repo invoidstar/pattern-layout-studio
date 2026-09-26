@@ -126,9 +126,9 @@ function floodClear(
   seed: number,
   width: number,
   height: number,
+  queue: Int32Array,
 ): number {
   if (!output[seed]) return 0;
-  const queue = new Int32Array(output.length);
   let head = 0;
   let tail = 0;
   queue[tail++] = seed;
@@ -300,9 +300,10 @@ export function filterGeometryText(
 
   const selected = selectedGroups.flat();
   const output = mask.slice();
+  const clearQueue = new Int32Array(output.length);
   let removedPixels = 0;
   for (const component of selected) {
-    removedPixels += floodClear(output, component.seed, width, height);
+    removedPixels += floodClear(output, component.seed, width, height, clearQueue);
   }
 
   const regions = mergeRegionBoxes(
