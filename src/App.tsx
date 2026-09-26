@@ -296,7 +296,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.2：文字排除、平滑边缘、OCR 增强与人工修正已启用。');
+  const [status, setStatus] = useState('V1.3.1：主体优先归并、文字排除、平滑边缘与自动分页已启用。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -1066,11 +1066,11 @@ export default function App() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.3</span>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.3.1</span>
           <h1>自动分页 · 多页排版与导出</h1>
           <p>
-            V1.3 保留文字排除、平滑边缘和人工修正，并将单页 overflow 升级为自动分页：
-            一页放不下就继续生成下一页，最终可导出当前页 PNG 或全部页面 ZIP。
+            V1.3.1 增加主体优先的内部装饰归并，避免衣服图案、脸部细节等被过度拆分；
+            同时保留文字排除、平滑边缘、自动分页，以及当前页 PNG / 全部页 ZIP 导出。
           </p>
         </div>
         <div className="hero-badge">Multi Page</div>
