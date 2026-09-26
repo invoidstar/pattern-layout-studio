@@ -26,8 +26,16 @@ export interface PatternPart {
   height: number;
   x: number;
   y: number;
+  pageIndex?: number;
   locked: boolean;
   visible: boolean;
   overflow?: boolean;
   stats?: PartStats;
+}
+
+export interface LayoutPage {
+  index: number;
+  width: number;
+  height: number;
+  partIds: string[];
 }
