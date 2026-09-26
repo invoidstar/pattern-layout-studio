@@ -1,100 +1,108 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part extraction, no-scale layout editing, automatic pagination and PNG export.
+Browser-side pattern-part extraction, source tracing, no-scale layout editing, automatic pagination and PNG/ZIP export.
 
-## V1.3.1
+## V1.4
 
 The current pipeline is:
 
-**Upload → text exclusion → edge cleanup → smooth contour → automatic multi-page MaxRects → page editing → PNG / ZIP export**
+**Upload → text exclusion → edge cleanup → host-aware grouping → source trace → multi-page MaxRects → page editing → PNG / ZIP export**
+
+### Source Trace
+
+V1.4 makes every converted part traceable back to the original uploaded image.
+
+- each automatically extracted part stores its exact original crop coordinates
+- selecting a converted part highlights its source region on the original image
+- clicking a source-region box selects the corresponding converted part
+- the source panel shows x / y / width / height in original-image pixels
+- all parts on the current layout page can be seen as lightweight source boxes
+- the selected part receives a stronger source highlight
+- manually merged parts preserve multiple source regions
+- split parts inherit or refine their source coordinates when mapping is unambiguous
+
+This creates a direct visual relationship:
+
+> converted part ↔ original image region
+
+### V1.4 workspace
+
+The main editor is now a three-column workstation:
+
+1. **Source Trace** — original image, source boxes, source coordinates and debug views
+2. **Canvas Editor** — page navigation and manual layout/repair tools
+3. **Parts / Quality** — current-page part list and processing diagnostics
+
+On narrower screens the layout automatically collapses to two columns and then one column.
 
 ### Host-aware part grouping
 
-V1.3.1 reduces over-segmentation inside illustrated parts.
+The V1.3.1 over-segmentation fix remains enabled.
 
-Before packing, significant connected components are consolidated with a larger host when a much smaller component is spatially contained by that host. This keeps garment prints, emblems, facial details and bow decorations attached to the correct logical part instead of turning them into separate layout pieces.
+Split strength:
 
-Split strength is configurable:
-
-- **Conservative (default)** — stronger host-aware grouping
-- **Standard** — moderate grouping
-- **Fine** — keeps more disconnected detail as independent parts
-
-The renderer supports multiple disconnected foreground islands inside one logical part, so merged decorations remain visible.
+- **Conservative (default)** — keep internal artwork with its host part
+- **Standard**
+- **Fine**
 
 ### Automatic multi-page layout
 
-V1.3 removes the old single-page overflow limitation.
+- MaxRects page 1
+- remaining parts continue to page 2, page 3, ...
+- near-canvas-size parts can receive dedicated pages
+- only parts physically larger than the target canvas are truly unplaceable
+- no resize is used to solve packing
 
-- MaxRects packs page 1 first
-- remaining parts automatically continue to page 2, page 3, ...
-- a part that physically fits the target canvas can receive its own dedicated page
-- only a part whose own width/height exceeds the target canvas is considered truly unplaceable
-- no part is resized to make it fit
-
-Supported targets:
+Targets:
 
 - 3500×3500
 - 2970×2100
 
-### Page editor
+### Editing
 
-- previous / next page navigation
-- current page / total page indicator
+- page navigation
 - select / multi-select
 - drag
 - lock / unlock
 - brush restore
 - eraser
 - merge
-- split disconnected regions
+- split
 - delete
 - Undo / Redo
-- complete re-pagination
+- re-pagination
 
 ### Export
 
-- export current page as PNG
-- export all pages as one ZIP
-- ordered page filenames
+- current page PNG
+- all pages ZIP
 - configurable DPI
-- PNG `pHYs` metadata on every exported page
-- 1:1 part pixel dimensions throughout packing and export
+- PNG `pHYs` metadata
+- no-scale dimensions throughout export
 
-### V1.2 quality pipeline retained
+### Quality pipeline retained
 
-- conservative geometry-based text-line detection
-- optional lazy Chinese/English OCR enhancement
-- robust dominant-border background model
-- closing / opening morphology
-- tiny-island removal
-- small-hole filling
-- outer and internal contour tracing
-- Chaikin smoothing
-- supersampled antialiased alpha
-- even-odd rendering for internal holes
+- geometry text filtering
+- optional Chinese/English OCR
+- robust background model
+- morphology
+- contour smoothing
+- multiple foreground islands per logical part
+- internal-hole preservation
+- antialiased alpha
 
 ## Live site
 
 https://invoidstar.github.io/pattern-layout-studio/
 
-## Acceptance
+## Documentation
 
-V1.3.1 additionally addresses dense illustrated sheets where internal artwork was being over-segmented. V1.3 specifically addresses pattern sheets that previously produced `overflow` when every extracted part could not be packed onto one page.
-
-The new rule is:
-
-> Not fitting the current page creates another page. It is not an error.
-
-A near-canvas-size part that fits physically but cannot satisfy the normal packing margin also receives a dedicated page instead of being reported as overflow.
-
-Detailed documents:
-
+- [V1.4 implementation](docs/V1.4_IMPLEMENTATION.md)
+- [V1.4 acceptance](docs/V1.4_ACCEPTANCE.md)
+- [V1.3.1 acceptance](docs/V1.3.1_ACCEPTANCE.md)
 - [V1.3 implementation](docs/V1.3_IMPLEMENTATION.md)
 - [V1.3 acceptance](docs/V1.3_ACCEPTANCE.md)
-- [V1.2 implementation](docs/V1.2_IMPLEMENTATION.md)
-- [V1.2 acceptance](docs/V1.2_ACCEPTANCE.md)
 
 ## Privacy
 
-Image processing happens in the browser. Uploaded pattern images are not committed to this repository. Optional OCR downloads OCR runtime/language data only when the OCR enhancement switch is enabled.
+Image processing happens in the browser. Uploaded pattern images are not committed to this repository. Optional OCR downloads OCR runtime/language data only when enabled.
