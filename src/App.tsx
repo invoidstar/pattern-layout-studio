@@ -142,7 +142,7 @@ function unionSourceBoxes(boxes: SourceBox[]): SourceBox | undefined {
   };
 }
 
-function padBox(box: ComponentBox, width: number, height: number, padding = 3): ComponentBox {
+function padBox(box: ComponentBox, width: number, height: number, padding = 10): ComponentBox {
   const x = Math.max(0, box.x - padding);
   const y = Math.max(0, box.y - padding);
   const right = Math.min(width, box.x + box.width + padding);
@@ -1569,8 +1569,8 @@ export default function App() {
           </div>
 
           <div className="canvas-help">
-            Ctrl / Shift 点击多选 · 画笔可恢复原图像素 · 橡皮擦可切断零件后再“拆分” ·
-            Ctrl+Z / Ctrl+Shift+Z 撤销/恢复
+            Ctrl / Shift 点击多选 · 恢复画笔连续从原始 RGB 补回像素 · 橡皮擦可切断后再“拆分” ·
+            拆分会原子替换父零件 · Ctrl+Z / Ctrl+Shift+Z 撤销/恢复
           </div>
         </div>
 
