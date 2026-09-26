@@ -21,6 +21,7 @@ import { renderPartFromLocalMask } from './core/alpha';
 import { outerContoursForMode } from './core/contour';
 import {
   packIntoMultiplePages,
+  packMaxRectsWithoutScaling,
   type PackingDiagnostics,
 } from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
@@ -162,11 +163,15 @@ function maskRatio(mask: Uint8Array) {
   return mask.length ? foreground / mask.length : 0;
 }
 
-function arrangePartsAcrossPages(parts: PatternPart[], target: CanvasSize) {
+function arrangePartsAcrossPages(
+  parts: PatternPart[],
+  target: CanvasSize,
+  gap = GAP,
+) {
   const multi = packIntoMultiplePages(
     parts.map((part) => ({ id: part.id, width: part.width, height: part.height })),
     target,
-    GAP,
+    gap,
   );
 
   const positions = new Map<
@@ -354,6 +359,8 @@ export default function App() {
   const [historyTick, setHistoryTick] = useState(0);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
   const [sourceReference, setSourceReference] = useState<SourceReference | null>(null);
+  const [packingGap, setPackingGap] = useState(16);
+  const [moveTargetPage, setMoveTargetPage] = useState(0);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -379,6 +386,29 @@ export default function App() {
     [parts, currentPageIndex],
   );
   const unplaceableCount = parts.filter((part) => part.overflow).length;
+  const pageStats = useMemo(
+    () =>
+      Array.from({ length: pageCount }, (_, pageIndex) => {
+        const pageParts = parts.filter(
+          (part) =>
+            !part.overflow &&
+            (part.pageIndex ?? 0) === pageIndex,
+        );
+        const usedArea = pageParts.reduce(
+          (total, part) => total + part.width * part.height,
+          0,
+        );
+        return {
+          pageIndex,
+          count: pageParts.length,
+          usedArea,
+          utilization:
+            usedArea / Math.max(1, target.width * target.height),
+        };
+      }),
+    [parts, pageCount, target],
+  );
+  const currentPageStats = pageStats[currentPageIndex];
   const sourceTraceItems = useMemo(
     () =>
       currentPageParts.flatMap((part) => {
@@ -423,7 +453,10 @@ export default function App() {
       setCurrentPageIndex(pageCount - 1);
       setSelectedIds([]);
     }
-  }, [pageCount, currentPageIndex]);
+    if (pageCount > 0 && moveTargetPage > pageCount) {
+      setMoveTargetPage(pageCount - 1);
+    }
+  }, [pageCount, currentPageIndex, moveTargetPage]);
 
   function goToPage(index: number) {
     if (!pageCount) return;
@@ -716,7 +749,11 @@ export default function App() {
       if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) nextTargetKey = 'square';
 
       const nextTarget = TARGETS[nextTargetKey];
-      const arrangedResult = arrangePartsAcrossPages(extracted, nextTarget);
+      const arrangedResult = arrangePartsAcrossPages(
+        extracted,
+        nextTarget,
+        packingGap,
+      );
       const allTextRegions = [...geometryRegions, ...ocrRegions];
 
       imageCacheRef.current.clear();
@@ -766,7 +803,11 @@ export default function App() {
     if (!parts.length) return;
     pushHistory();
     const nextTarget = TARGETS[nextKey];
-    const arrangedResult = arrangePartsAcrossPages(parts, nextTarget);
+    const arrangedResult = arrangePartsAcrossPages(
+      parts,
+      nextTarget,
+      packingGap,
+    );
     setTargetKey(nextKey);
     setParts(arrangedResult.arranged);
     setCurrentPageIndex(0);
@@ -785,6 +826,157 @@ export default function App() {
       arrangedResult.unplaceableCount
         ? `已重新分页：共 ${arrangedResult.pageCount} 页，另有 ${arrangedResult.unplaceableCount} 个超大零件无法放入。`
         : `已按 ${nextTarget.label} 重新自动分页：共 ${arrangedResult.pageCount} 页，所有零件保持 1:1。`,
+    );
+  }
+
+  function packPageParts(pageParts: PatternPart[]) {
+    const result = packMaxRectsWithoutScaling(
+      pageParts.map((part) => ({
+        id: part.id,
+        width: part.width,
+        height: part.height,
+      })),
+      target,
+      packingGap,
+    );
+    if (result.diagnostics.placedCount !== pageParts.length) return null;
+
+    const centered = centerLayout(
+      result.items
+        .filter(
+          (item) =>
+            item.placed &&
+            item.x !== undefined &&
+            item.y !== undefined,
+        )
+        .map((item) => ({
+          id: item.id,
+          x: item.x!,
+          y: item.y!,
+          width: item.width,
+          height: item.height,
+        })),
+      target,
+    );
+    return new Map(centered.map((item) => [item.id, item]));
+  }
+
+  function normalizeManualPages(
+    workingParts: PatternPart[],
+  ): {
+    parts: PatternPart[];
+    oldToNew: Map<number, number>;
+  } {
+    const usedPages = [...new Set(
+      workingParts
+        .filter((part) => !part.overflow && (part.pageIndex ?? -1) >= 0)
+        .map((part) => part.pageIndex ?? 0),
+    )].sort((a, b) => a - b);
+
+    const oldToNew = new Map(
+      usedPages.map((oldPage, newPage) => [oldPage, newPage]),
+    );
+
+    return {
+      oldToNew,
+      parts: workingParts.map((part) => {
+        if (part.overflow || (part.pageIndex ?? -1) < 0) return part;
+        return {
+          ...part,
+          pageIndex: oldToNew.get(part.pageIndex ?? 0) ?? 0,
+        };
+      }),
+    };
+  }
+
+  function moveSelectedToPage(targetPageIndex: number) {
+    const selected = parts.filter(
+      (part) => selectedIds.includes(part.id) && !part.overflow,
+    );
+    if (!selected.length) {
+      setStatus('请先选择需要跨页移动的零件。');
+      return;
+    }
+
+    const requestedPage = Math.max(0, Math.min(pageCount, targetPageIndex));
+    const sourcePages = new Set(
+      selected.map((part) => part.pageIndex ?? 0),
+    );
+
+    if (
+      requestedPage < pageCount &&
+      selected.every((part) => (part.pageIndex ?? 0) === requestedPage)
+    ) {
+      setStatus(`所选零件已经位于 Page ${requestedPage + 1}。`);
+      return;
+    }
+
+    const selectedIdsSet = new Set(selected.map((part) => part.id));
+    const targetExisting =
+      requestedPage < pageCount
+        ? parts.filter(
+            (part) =>
+              !part.overflow &&
+              !selectedIdsSet.has(part.id) &&
+              (part.pageIndex ?? 0) === requestedPage,
+          )
+        : [];
+
+    const targetPack = packPageParts([...targetExisting, ...selected]);
+    if (!targetPack) {
+      setStatus(
+        `Page ${requestedPage + 1} 无法完整容纳所选 ${selected.length} 个零件；布局未改变。`,
+      );
+      return;
+    }
+
+    pushHistory();
+
+    let nextParts = parts.map((part) => {
+      const targetPosition = targetPack.get(part.id);
+      if (targetPosition) {
+        return {
+          ...part,
+          x: targetPosition.x,
+          y: targetPosition.y,
+          pageIndex: requestedPage,
+          overflow: false,
+        };
+      }
+      return part;
+    });
+
+    // Repack every source page after removing the moved parts.
+    for (const sourcePage of sourcePages) {
+      if (sourcePage === requestedPage) continue;
+      const remaining = nextParts.filter(
+        (part) =>
+          !part.overflow &&
+          !selectedIdsSet.has(part.id) &&
+          (part.pageIndex ?? 0) === sourcePage,
+      );
+      if (!remaining.length) continue;
+      const sourcePack = packPageParts(remaining);
+      if (!sourcePack) continue;
+      nextParts = nextParts.map((part) => {
+        const position = sourcePack.get(part.id);
+        return position
+          ? { ...part, x: position.x, y: position.y }
+          : part;
+      });
+    }
+
+    const normalized = normalizeManualPages(nextParts);
+    const normalizedTarget =
+      normalized.oldToNew.get(requestedPage) ??
+      Math.max(0, normalized.oldToNew.size - 1);
+
+    setParts(normalized.parts);
+    setCurrentPageIndex(normalizedTarget);
+    setMoveTargetPage(normalizedTarget);
+    setSelectedIds(selected.map((part) => part.id));
+    setStatus(
+      `已将 ${selected.length} 个零件移动到 Page ${normalizedTarget + 1}，并自动整理目标页与源页。`,
     );
   }
 
@@ -1256,20 +1448,20 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell v14-shell">
+    <main className="app-shell v14-shell v16-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.5</span>
-          <h1>精确形状裁切 · 原图追踪工作台</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.6</span>
+          <h1>多页自由编排 · Pattern Workspace</h1>
           <p>
-            V1.5 不再把外接矩形里的其他前景误带进零件：每个逻辑零件按精确组件 mask 裁切，
-            主体内部原始颜色默认保留；画笔改为连续插值并可从原始 RGB 真正恢复。
+            V1.6 支持跨 Page 移动零件，并在自动分页后继续做整页合并和跨页回填；
+            工作区也重新整理，让原图、画布、分页、零件管理和导出更集中。
           </p>
         </div>
-        <div className="hero-badge">Shape Exact</div>
+        <div className="hero-badge">Page Flow</div>
       </section>
 
-      <section className="control-grid v12-grid">
+      <section className="control-grid v12-grid v16-commandbar">
         <label className="upload-card">
           <span className="control-label">1 · 上传图片</span>
           <strong>{busy ? '处理中…' : '选择 PNG / JPG'}</strong>
@@ -1334,7 +1526,7 @@ export default function App() {
             <option value="standard">拆分力度：标准</option>
             <option value="fine">拆分力度：精细</option>
           </select>
-          <small>保守模式会把衣服、脸部、蝴蝶结等主体内部的小图案自动并回主体，避免过度拆分。</small>
+          <small>保守模式会把内部装饰并回主体。页面间距可在右侧 Inspector 中调整。</small>
         </div>
 
         <div className="control-card">
@@ -1510,14 +1702,13 @@ export default function App() {
           <div className="panel-heading editor-heading">
             <div>
               <span className="control-label">CANVAS EDITOR</span>
-              <strong>{target.label} · 第 {pageCount ? currentPageIndex + 1 : 0} / {pageCount} 页</strong>
-              {pageCount > 0 && (
-                <div className="page-nav">
-                  <button onClick={() => goToPage(currentPageIndex - 1)} disabled={currentPageIndex <= 0}>‹</button>
-                  <span>Page {currentPageIndex + 1}</span>
-                  <button onClick={() => goToPage(currentPageIndex + 1)} disabled={currentPageIndex >= pageCount - 1}>›</button>
-                </div>
-              )}
+              <strong>{target.label}</strong>
+              <span className="canvas-subtitle">
+                Page {pageCount ? currentPageIndex + 1 : 0} / {pageCount}
+                {currentPageStats
+                  ? ` · 利用率 ${(currentPageStats.utilization * 100).toFixed(1)}%`
+                  : ''}
+              </span>
             </div>
             <div className="editor-tools">
               <div className="tool-group">
@@ -1549,6 +1740,22 @@ export default function App() {
             </div>
           </div>
 
+          {pageCount > 0 && (
+            <div className="page-strip">
+              {pageStats.map((page) => (
+                <button
+                  key={page.pageIndex}
+                  className={`page-chip ${page.pageIndex === currentPageIndex ? 'active' : ''}`}
+                  onClick={() => goToPage(page.pageIndex)}
+                >
+                  <b>P{page.pageIndex + 1}</b>
+                  <span>{page.count} 件</span>
+                  <em>{(page.utilization * 100).toFixed(0)}%</em>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="canvas-stage">
             {currentPageParts.length ? (
               <canvas
@@ -1575,12 +1782,81 @@ export default function App() {
         </div>
 
         <aside className="parts-panel">
-          <div className="panel-heading">
+          <div className="panel-heading inspector-heading">
             <div>
-              <span className="control-label">QUALITY / PARTS</span>
-              <strong>第 {pageCount ? currentPageIndex + 1 : 0} 页 · {currentPageParts.length} 个零件</strong>
+              <span className="control-label">INSPECTOR</span>
+              <strong>Page {pageCount ? currentPageIndex + 1 : 0}</strong>
             </div>
-            <span className="panel-page-badge">Page {pageCount ? currentPageIndex + 1 : 0}</span>
+            <span className="panel-page-badge">
+              {currentPageParts.length} parts
+            </span>
+          </div>
+
+          <div className="page-manager">
+            <div className="inspector-section-title">
+              <span>跨页移动</span>
+              <em>{selectedIds.length ? `已选 ${selectedIds.length}` : '未选择'}</em>
+            </div>
+            <div className="page-transfer">
+              <select
+                value={moveTargetPage}
+                onChange={(event) => setMoveTargetPage(Number(event.target.value))}
+                disabled={!pageCount}
+              >
+                {pageStats.map((page) => (
+                  <option key={page.pageIndex} value={page.pageIndex}>
+                    Page {page.pageIndex + 1} · {(page.utilization * 100).toFixed(0)}%
+                  </option>
+                ))}
+                <option value={pageCount}>新建 Page {pageCount + 1}</option>
+              </select>
+              <button
+                onClick={() => moveSelectedToPage(moveTargetPage)}
+                disabled={!selectedIds.length || busy}
+              >
+                移动
+              </button>
+            </div>
+            <div className="transfer-shortcuts">
+              <button
+                onClick={() => moveSelectedToPage(Math.max(0, currentPageIndex - 1))}
+                disabled={!selectedIds.length || currentPageIndex <= 0 || busy}
+              >
+                ← 前一页
+              </button>
+              <button
+                onClick={() => moveSelectedToPage(Math.min(pageCount, currentPageIndex + 1))}
+                disabled={!selectedIds.length || busy}
+              >
+                后一页 →
+              </button>
+            </div>
+          </div>
+
+          <div className="packing-manager">
+            <div className="inspector-section-title">
+              <span>页面利用率</span>
+              <em>全局回填已开启</em>
+            </div>
+            <label className="gap-control">
+              <span>零件间距</span>
+              <input
+                type="range"
+                min="4"
+                max="32"
+                step="2"
+                value={packingGap}
+                onChange={(event) => setPackingGap(Number(event.target.value))}
+              />
+              <b>{packingGap}px</b>
+            </label>
+            <button
+              className="optimize-pages"
+              onClick={() => relayout()}
+              disabled={!parts.length || busy}
+            >
+              全局优化分页
+            </button>
           </div>
 
           {quality && (
@@ -1636,7 +1912,7 @@ export default function App() {
       </section>
 
       <footer>
-        <span>V1.5 · exact shape mask · preserve RGB · source contour · automatic pagination</span>
+        <span>V1.6 · cross-page transfer · global page compaction · exact shape mask</span>
         <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
