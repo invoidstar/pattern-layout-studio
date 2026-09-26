@@ -142,3 +142,59 @@ export function contourForMode(
   const simplified = simplifyContour(raw, mode === 'strong' ? 1.25 : 1.75);
   return chaikinSmooth(simplified, mode === 'strong' ? 2 : 1);
 }
+
+
+/**
+ * Trace enclosed background holes so contour smoothing does not accidentally
+ * fill legitimate cut-outs inside a part.
+ */
+export function holeContoursForMode(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+  mode: SmoothingMode,
+): Point[][] {
+  const visited = new Uint8Array(mask.length);
+  const queue = new Int32Array(mask.length);
+  const holeMask = new Uint8Array(mask.length);
+  const contours: Point[][] = [];
+
+  for (let start = 0; start < mask.length; start += 1) {
+    if (mask[start] || visited[start]) continue;
+
+    let head = 0;
+    let tail = 0;
+    let touchesBorder = false;
+    queue[tail++] = start;
+    visited[start] = 1;
+
+    while (head < tail) {
+      const current = queue[head++];
+      const x = current % width;
+      const y = Math.floor(current / width);
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesBorder = true;
+
+      const neighbours = [
+        [x - 1, y],
+        [x + 1, y],
+        [x, y - 1],
+        [x, y + 1],
+      ];
+      for (const [nx, ny] of neighbours) {
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const next = ny * width + nx;
+        if (mask[next] || visited[next]) continue;
+        visited[next] = 1;
+        queue[tail++] = next;
+      }
+    }
+
+    if (touchesBorder || tail < 4) continue;
+    for (let i = 0; i < tail; i += 1) holeMask[queue[i]] = 1;
+    const contour = contourForMode(holeMask, width, height, mode);
+    if (contour.length >= 3) contours.push(contour);
+    for (let i = 0; i < tail; i += 1) holeMask[queue[i]] = 0;
+  }
+
+  return contours;
+}
