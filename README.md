@@ -2,11 +2,25 @@
 
 Browser-side pattern-part extraction, no-scale layout editing, automatic pagination and PNG export.
 
-## V1.3
+## V1.3.1
 
 The current pipeline is:
 
 **Upload → text exclusion → edge cleanup → smooth contour → automatic multi-page MaxRects → page editing → PNG / ZIP export**
+
+### Host-aware part grouping
+
+V1.3.1 reduces over-segmentation inside illustrated parts.
+
+Before packing, significant connected components are consolidated with a larger host when a much smaller component is spatially contained by that host. This keeps garment prints, emblems, facial details and bow decorations attached to the correct logical part instead of turning them into separate layout pieces.
+
+Split strength is configurable:
+
+- **Conservative (default)** — stronger host-aware grouping
+- **Standard** — moderate grouping
+- **Fine** — keeps more disconnected detail as independent parts
+
+The renderer supports multiple disconnected foreground islands inside one logical part, so merged decorations remain visible.
 
 ### Automatic multi-page layout
 
@@ -66,7 +80,7 @@ https://invoidstar.github.io/pattern-layout-studio/
 
 ## Acceptance
 
-V1.3 specifically addresses dense pattern sheets that previously produced `overflow` when every extracted part could not be packed onto one page.
+V1.3.1 additionally addresses dense illustrated sheets where internal artwork was being over-segmented. V1.3 specifically addresses pattern sheets that previously produced `overflow` when every extracted part could not be packed onto one page.
 
 The new rule is:
 
