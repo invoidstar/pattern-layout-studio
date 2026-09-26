@@ -141,3 +141,52 @@ footer{display:flex;justify-content:space-between;gap:16px;padding:18px 4px 0;co
   .canvas-stage{min-height:380px;padding:12px}
   footer{flex-direction:column}
 }
+
+
+/* V1.2 */
+.v12-grid{grid-template-columns:1.15fr 1fr 1fr 1fr}
+.control-card select{
+  width:100%;margin-top:12px;border:1px solid #d7deea;border-radius:10px;padding:10px 11px;
+  background:#f8fafe;color:#344054;font-weight:700
+}
+.switch-row{display:flex;align-items:center;gap:9px;margin-top:14px;color:#4f596c;font-size:13px;font-weight:700}
+.switch-row.compact{margin-top:10px;font-size:12px;color:#7b8497}
+.switch-row input{width:16px;height:16px;accent-color:#4055d6}
+.export-inline{display:grid;grid-template-columns:76px auto 1fr;align-items:center;gap:8px;margin-top:10px}
+.export-inline input{
+  width:76px;border:1px solid #d7deea;border-radius:10px;padding:9px 10px;background:#f8fafe;color:#344054;font-weight:700
+}
+.export-inline span{font-size:11px;color:#8b94a7}
+.editor-heading{align-items:flex-start}
+.editor-tools{display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:72%}
+.tool-group{display:flex;gap:5px;padding:4px;border-radius:12px;background:#f1f3f8}
+.tool-group button,.debug-toggle{
+  border:0;border-radius:9px;background:transparent;padding:8px 11px;color:#657087;font-size:12px;font-weight:800
+}
+.tool-group button.active{background:#fff;color:#3147d7;box-shadow:0 3px 10px rgba(39,55,101,.12)}
+.brush-size{display:flex;align-items:center;gap:8px;color:#7c8596;font-size:11px;font-weight:800}
+.brush-size input{width:130px;accent-color:#4055d6}
+.debug-toggle{background:#f3f5fa}
+.editor-canvas.tool-brush{cursor:crosshair}
+.editor-canvas.tool-eraser{cursor:cell}
+.debug-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px;border-bottom:1px solid #edf0f5;background:#f8f9fc
+}
+.debug-grid figure{margin:0;border:1px solid #e3e8f0;border-radius:10px;overflow:hidden;background:#fff}
+.debug-grid img{display:block;width:100%;height:105px;object-fit:contain;margin:0;border:0;background:#20242b}
+.debug-grid figcaption{padding:6px 7px;color:#768095;font-size:10px;font-weight:700}
+@media (max-width:1250px){
+  .v12-grid{grid-template-columns:1fr 1fr}
+  .v12-grid .upload-card{grid-column:1/-1}
+  .editor-tools{max-width:100%;align-items:flex-start}
+}
+@media (max-width:680px){
+  .v12-grid{grid-template-columns:1fr}
+  .v12-grid .upload-card{grid-column:auto}
+  .editor-tools{width:100%}
+  .tool-group{width:100%}
+  .tool-group button{flex:1}
+  .brush-size{width:100%}
+  .brush-size input{flex:1}
+  .debug-grid{grid-template-columns:1fr}
+}
