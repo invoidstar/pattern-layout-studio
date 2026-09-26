@@ -720,218 +720,356 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [selectedIds, parts]);
 
-  async function processFile(file: File) {
-    setBusy(true);
-    setSelectedIds([]);
-    setQuality(null);
-    setDebugImages(null);
-    undoRef.current = [];
-    redoRef.current = [];
-    setHistoryTick((value) => value + 1);
-    setStatus('正在执行 V1.6 精确裁切、全局分页优化与来源追踪…');
-    setCurrentPageIndex(0);
-    setSourceReference(null);
+  async function processSourceFile(
+    file: File,
+    sourceIndex: number,
+    totalSources: number,
+    batchId: string,
+  ): Promise<ProcessedSourceResult> {
+    const sourceId = `${batchId}-source-${sourceIndex}`;
+    const dataUrl = await readFile(file);
+    const image = await loadImage(dataUrl);
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = image.naturalWidth;
+    sourceCanvas.height = image.naturalHeight;
+    const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    if (!sourceContext) throw new Error('Canvas unavailable');
 
-    try {
-      const dataUrl = await readFile(file);
-      const image = await loadImage(dataUrl);
-      setSourceReference({
-        imageUrl: dataUrl,
-        width: image.naturalWidth,
-        height: image.naturalHeight,
-        name: file.name,
-      });
-      const sourceCanvas = document.createElement('canvas');
-      sourceCanvas.width = image.naturalWidth;
-      sourceCanvas.height = image.naturalHeight;
-      const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
-      if (!sourceContext) throw new Error('Canvas unavailable');
+    setStatus(
+      `正在处理 ${sourceIndex + 1}/${totalSources}：${file.name} · 背景与分割…`,
+    );
 
-      sourceContext.drawImage(image, 0, 0);
-      const imageData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-      const background = estimateBackgroundModel(imageData);
-      setBackgroundCss(rgbCss(background.color.r, background.color.g, background.color.b));
+    sourceContext.drawImage(image, 0, 0);
+    const imageData = sourceContext.getImageData(
+      0,
+      0,
+      sourceCanvas.width,
+      sourceCanvas.height,
+    );
+    const background = estimateBackgroundModel(imageData);
+    const sourceBackgroundCss = rgbCss(
+      background.color.r,
+      background.color.g,
+      background.color.b,
+    );
 
-      const rawMask = buildForegroundMask(imageData, background);
-      let workingMask = rawMask.slice();
-      let geometryRegions: TextRegion[] = [];
-      let ocrRegions: TextRegion[] = [];
+    const rawMask = buildForegroundMask(imageData, background);
+    let workingMask = rawMask.slice();
+    let geometryRegions: TextRegion[] = [];
+    let ocrRegions: TextRegion[] = [];
 
-      if (textExclude) {
-        const geometry = filterGeometryText(
-          workingMask,
-          sourceCanvas.width,
-          sourceCanvas.height,
-          textStrength,
-        );
-        workingMask = geometry.mask;
-        geometryRegions = geometry.regions;
-
-        if (ocrEnhanced) {
-          setStatus('正在执行中英 OCR 增强文字检测…');
-          try {
-            ocrRegions = await detectOcrTextRegions(sourceCanvas, (progress) => {
-              setStatus(`OCR：${progress.status} ${Math.round(progress.progress * 100)}%`);
-            });
-            const ocrFiltered = removeTextRegions(
-              workingMask,
-              sourceCanvas.width,
-              sourceCanvas.height,
-              ocrRegions,
-              4,
-            );
-            workingMask = ocrFiltered.mask;
-          } catch (error) {
-            console.warn('OCR enhancement failed; geometry filtering remains active.', error);
-            setStatus('OCR 增强不可用，已自动回退到几何文字过滤。');
-            ocrRegions = [];
-          }
-        }
-      }
-
-      const afterTextMask = workingMask.slice();
-      const smoothed = smoothMask(
+    if (textExclude) {
+      const geometry = filterGeometryText(
         workingMask,
         sourceCanvas.width,
         sourceCanvas.height,
+        textStrength,
+      );
+      workingMask = geometry.mask;
+      geometryRegions = geometry.regions;
+
+      if (ocrEnhanced) {
+        setStatus(
+          `正在处理 ${sourceIndex + 1}/${totalSources}：${file.name} · OCR…`,
+        );
+        try {
+          ocrRegions = await detectOcrTextRegions(sourceCanvas, (progress) => {
+            setStatus(
+              `图片 ${sourceIndex + 1}/${totalSources} · OCR：${progress.status} ${Math.round(progress.progress * 100)}%`,
+            );
+          });
+          const ocrFiltered = removeTextRegions(
+            workingMask,
+            sourceCanvas.width,
+            sourceCanvas.height,
+            ocrRegions,
+            4,
+          );
+          workingMask = ocrFiltered.mask;
+        } catch (error) {
+          console.warn(
+            `OCR enhancement failed for ${file.name}; geometry filtering remains active.`,
+            error,
+          );
+          ocrRegions = [];
+        }
+      }
+    }
+
+    const afterTextMask = workingMask.slice();
+    const smoothed = smoothMask(
+      workingMask,
+      sourceCanvas.width,
+      sourceCanvas.height,
+      smoothing,
+    );
+    const minArea = Math.max(
+      96,
+      Math.round(sourceCanvas.width * sourceCanvas.height * 0.00005),
+    );
+    const labeled = labelComponents(
+      smoothed.mask,
+      sourceCanvas.width,
+      sourceCanvas.height,
+      minArea,
+    );
+
+    if (!labeled.components.length) {
+      labeled.labels.fill(1);
+      labeled.components.push({
+        label: 1,
+        x: 0,
+        y: 0,
+        width: sourceCanvas.width,
+        height: sourceCanvas.height,
+        area: sourceCanvas.width * sourceCanvas.height,
+      });
+    }
+
+    const rawComponentCount = labeled.components.length;
+    const grouping = groupLabeledComponents(
+      labeled.components,
+      sourceCanvas.width,
+      sourceCanvas.height,
+      splitStrength,
+    );
+    const allTextRegions = [...geometryRegions, ...ocrRegions];
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+
+    setStatus(
+      `正在处理 ${sourceIndex + 1}/${totalSources}：${file.name} · 生成 ${grouping.groups.length} 个零件…`,
+    );
+
+    const extracted: PatternPart[] = grouping.groups.map((group, partIndex) => {
+      const rawBox = group.box;
+      const box = padBox(rawBox, sourceCanvas.width, sourceCanvas.height);
+      const exactLocalMask = localMaskFromLabels(
+        labeled.labels,
+        sourceCanvas.width,
+        box,
+        group.labels,
+      );
+      const rendered = renderPartFromLocalMask(
+        sourceCanvas,
+        exactLocalMask,
+        box,
         smoothing,
+        true,
+        false,
       );
-      const minArea = Math.max(
-        96,
-        Math.round(sourceCanvas.width * sourceCanvas.height * 0.00005),
-      );
-      const labeled = labelComponents(
+      const sourceRegion: SourceRegion = {
+        sourceId,
+        box: {
+          x: box.x,
+          y: box.y,
+          width: box.width,
+          height: box.height,
+        },
+        contours: rendered.sourceContours,
+      };
+
+      return {
+        id: `part-${sourceId}-${partIndex}`,
+        name: `${baseName} · ${partIndex + 1}`,
+        sourceId,
+        imageUrl: rendered.imageUrl,
+        sourceImageUrl: rendered.sourceImageUrl,
+        rawSourceImageUrl: rendered.rawSourceImageUrl,
+        width: rendered.width,
+        height: rendered.height,
+        x: 0,
+        y: 0,
+        locked: false,
+        visible: true,
+        overflow: false,
+        stats: {
+          area: rawBox.area,
+          fillRatio: rawBox.area / Math.max(1, rawBox.width * rawBox.height),
+          textExcluded: textExclude,
+          smoothingApplied: smoothing !== 'off',
+          sourceBox: { ...sourceRegion.box! },
+          sourceBoxes: [{ ...sourceRegion.box! }],
+          sourceContours: rendered.sourceContours,
+          sourceRegions: [sourceRegion],
+        },
+      };
+    });
+
+    const debugImages: DebugImages = {
+      raw: makeMaskPreview(rawMask, sourceCanvas.width, sourceCanvas.height),
+      afterText: makeMaskPreview(
+        afterTextMask,
+        sourceCanvas.width,
+        sourceCanvas.height,
+      ),
+      smooth: makeMaskPreview(
         smoothed.mask,
         sourceCanvas.width,
         sourceCanvas.height,
-        minArea,
-      );
+      ),
+      textOverlay: makeTextOverlay(sourceCanvas, allTextRegions),
+    };
 
-      if (!labeled.components.length) {
-        labeled.labels.fill(1);
-        labeled.components.push({
-          label: 1,
-          x: 0,
-          y: 0,
-          width: sourceCanvas.width,
-          height: sourceCanvas.height,
-          area: sourceCanvas.width * sourceCanvas.height,
-        });
-      }
-
-      const rawComponentCount = labeled.components.length;
-      const grouping = groupLabeledComponents(
-        labeled.components,
-        sourceCanvas.width,
-        sourceCanvas.height,
-        splitStrength,
-      );
-      const boxes = grouping.groups.map((group) => group.box);
-
-      const stamp = Date.now();
-      const extracted: PatternPart[] = grouping.groups.map((group, index) => {
-        const rawBox = group.box;
-        const box = padBox(rawBox, sourceCanvas.width, sourceCanvas.height);
-        const exactLocalMask = localMaskFromLabels(
-          labeled.labels,
-          sourceCanvas.width,
-          box,
-          group.labels,
-        );
-        const rendered = renderPartFromLocalMask(
-          sourceCanvas,
-          exactLocalMask,
-          box,
-          smoothing,
-          true,
-          false,
-        );
-
-        return {
-          id: `part-${stamp}-${index}`,
-          name: `零件 ${index + 1}`,
-          imageUrl: rendered.imageUrl,
-          sourceImageUrl: rendered.sourceImageUrl,
-          rawSourceImageUrl: rendered.rawSourceImageUrl,
-          width: rendered.width,
-          height: rendered.height,
-          x: 0,
-          y: 0,
-          locked: false,
-          visible: true,
-          overflow: false,
-          stats: {
-            area: rawBox.area,
-            fillRatio: rawBox.area / Math.max(1, rawBox.width * rawBox.height),
-            textExcluded: textExclude,
-            smoothingApplied: smoothing !== 'off',
-            sourceBox: {
-              x: box.x,
-              y: box.y,
-              width: box.width,
-              height: box.height,
-            },
-            sourceBoxes: [{
-              x: box.x,
-              y: box.y,
-              width: box.width,
-              height: box.height,
-            }],
-            sourceContours: rendered.sourceContours,
-          },
-        };
-      });
-
-      let nextTargetKey: 'square' | 'a4' = targetKey;
-      if (sourceCanvas.width === 3500 && sourceCanvas.height === 3500) nextTargetKey = 'a4';
-      if (sourceCanvas.width === 2970 && sourceCanvas.height === 2100) nextTargetKey = 'square';
-
-      const nextTarget = TARGETS[nextTargetKey];
-      const arrangedResult = arrangePartsAcrossPages(
-        extracted,
-        nextTarget,
-        packingGap,
-      );
-      const allTextRegions = [...geometryRegions, ...ocrRegions];
-
-      imageCacheRef.current.clear();
-      setTargetKey(nextTargetKey);
-      setParts(arrangedResult.arranged);
-      setSourceInfo(
-        `${file.name} · ${sourceCanvas.width} × ${sourceCanvas.height} · ${boxes.length} 个零件`,
-      );
-      setQuality({
+    return {
+      source: {
+        id: sourceId,
+        imageUrl: dataUrl,
+        width: sourceCanvas.width,
+        height: sourceCanvas.height,
+        name: file.name,
+        backgroundCss: sourceBackgroundCss,
+        debugImages,
+      },
+      parts: extracted,
+      metrics: {
         threshold: background.threshold,
         spread: background.spread,
         foregroundRatio: maskRatio(smoothed.mask),
-        componentCount: boxes.length,
-        packing: arrangedResult.packing,
+        componentCount: extracted.length,
         textRegions: allTextRegions.length,
         geometryTextRegions: geometryRegions.length,
         ocrTextRegions: ocrRegions.length,
         morphology: smoothed.stats,
-        smoothing,
-        splitStrength,
         rawComponentCount,
         mergedDecorationCount: grouping.mergedDecorationCount,
+      },
+    };
+  }
+
+  async function processFiles(files: File[]) {
+    if (!files.length) return;
+
+    setBusy(true);
+    setSelectedIds([]);
+    setQuality(null);
+    setDebugImages(null);
+    setSourceReferences([]);
+    setActiveSourceId(null);
+    undoRef.current = [];
+    redoRef.current = [];
+    setHistoryTick((value) => value + 1);
+    setCurrentPageIndex(0);
+    setStatus(`准备处理 ${files.length} 张图片并统一排版…`);
+
+    try {
+      const batchId = `batch-${Date.now()}`;
+      const results: ProcessedSourceResult[] = [];
+      const failed: string[] = [];
+
+      for (let index = 0; index < files.length; index += 1) {
+        try {
+          const result = await processSourceFile(
+            files[index],
+            index,
+            files.length,
+            batchId,
+          );
+          results.push(result);
+        } catch (error) {
+          console.error(`Failed to process ${files[index].name}`, error);
+          failed.push(files[index].name);
+        }
+      }
+
+      if (!results.length) {
+        throw new Error('所有图片均处理失败');
+      }
+
+      const allParts = results.flatMap((result) => result.parts);
+      let nextTargetKey: 'square' | 'a4' = targetKey;
+
+      // Keep the old single-image convenience rule. Multi-image projects keep
+      // the currently selected output canvas because the sources can differ.
+      if (results.length === 1) {
+        const source = results[0].source;
+        if (source.width === 3500 && source.height === 3500) nextTargetKey = 'a4';
+        if (source.width === 2970 && source.height === 2100) nextTargetKey = 'square';
+      }
+
+      const nextTarget = TARGETS[nextTargetKey];
+      setStatus(
+        `已完成 ${results.length} 张图片拆件，正在统一优化 ${allParts.length} 个零件的分页…`,
+      );
+      const arrangedResult = arrangePartsAcrossPages(
+        allParts,
+        nextTarget,
+        packingGap,
+      );
+
+      const average = (
+        pick: (metrics: SourceProcessingMetrics) => number,
+      ) =>
+        results.reduce((total, result) => total + pick(result.metrics), 0) /
+        Math.max(1, results.length);
+      const sum = (
+        pick: (metrics: SourceProcessingMetrics) => number,
+      ) =>
+        results.reduce((total, result) => total + pick(result.metrics), 0);
+
+      const morphology = results.reduce<MorphologyStats>(
+        (total, result) => ({
+          removedIslandCount:
+            total.removedIslandCount +
+            result.metrics.morphology.removedIslandCount,
+          removedIslandPixels:
+            total.removedIslandPixels +
+            result.metrics.morphology.removedIslandPixels,
+          filledHoleCount:
+            total.filledHoleCount +
+            result.metrics.morphology.filledHoleCount,
+          filledHolePixels:
+            total.filledHolePixels +
+            result.metrics.morphology.filledHolePixels,
+        }),
+        {
+          removedIslandCount: 0,
+          removedIslandPixels: 0,
+          filledHoleCount: 0,
+          filledHolePixels: 0,
+        },
+      );
+
+      const sources = results.map((result) => result.source);
+      imageCacheRef.current.clear();
+      setTargetKey(nextTargetKey);
+      setParts(arrangedResult.arranged);
+      setSourceReferences(sources);
+      setActiveSourceId(sources[0].id);
+      setDebugImages(sources[0].debugImages);
+      setBackgroundCss(sources[0].backgroundCss);
+      setSourceInfo(
+        `${results.length} 张图片 · ${allParts.length} 个零件${failed.length ? ` · ${failed.length} 张失败` : ''}`,
+      );
+      setQuality({
+        threshold: average((metrics) => metrics.threshold),
+        spread: average((metrics) => metrics.spread),
+        foregroundRatio: average((metrics) => metrics.foregroundRatio),
+        componentCount: allParts.length,
+        packing: arrangedResult.packing,
+        textRegions: sum((metrics) => metrics.textRegions),
+        geometryTextRegions: sum((metrics) => metrics.geometryTextRegions),
+        ocrTextRegions: sum((metrics) => metrics.ocrTextRegions),
+        morphology,
+        smoothing,
+        splitStrength,
+        rawComponentCount: sum((metrics) => metrics.rawComponentCount),
+        mergedDecorationCount: sum(
+          (metrics) => metrics.mergedDecorationCount,
+        ),
         pageCount: arrangedResult.pageCount,
         unplaceableCount: arrangedResult.unplaceableCount,
-      });
-      setDebugImages({
-        raw: makeMaskPreview(rawMask, sourceCanvas.width, sourceCanvas.height),
-        afterText: makeMaskPreview(afterTextMask, sourceCanvas.width, sourceCanvas.height),
-        smooth: makeMaskPreview(smoothed.mask, sourceCanvas.width, sourceCanvas.height),
-        textOverlay: makeTextOverlay(sourceCanvas, allTextRegions),
       });
 
       setStatus(
         arrangedResult.unplaceableCount
-          ? `V1.6 完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布。`
-          : `V1.6 完成：${rawComponentCount} 个组件归并为 ${boxes.length} 个逻辑零件；全局分页压缩已执行，内部颜色与精确 mask 均保留。`,
+          ? `V1.7 完成：${results.length} 张图片的 ${allParts.length} 个零件已统一排成 ${arrangedResult.pageCount} 页；${arrangedResult.unplaceableCount} 个零件尺寸超过目标画布。`
+          : `V1.7 完成：${results.length} 张图片、${allParts.length} 个零件已统一全局优化为 ${arrangedResult.pageCount} 页。${failed.length ? ` 另有 ${failed.length} 张图片处理失败。` : ''}`,
       );
     } catch (error) {
       console.error(error);
-      setStatus(`处理失败：${error instanceof Error ? error.message : '未知错误'}`);
+      setStatus(
+        `批量处理失败：${error instanceof Error ? error.message : '未知错误'}`,
+      );
     } finally {
       setBusy(false);
     }
