@@ -1,6 +1,6 @@
 import type { ComponentBox } from './segmentation';
 import type { SmoothingMode } from './morphology';
-import { contourForMode } from './contour';
+import { contourForMode, holeContoursForMode } from './contour';
 
 export interface RenderedPart {
   imageUrl: string;
@@ -58,6 +58,7 @@ function rasterMask(
 
   const contour = contourForMode(mask, width, height, mode);
   if (contour.length < 3) return rasterBinaryMask(mask, width, height);
+  const holes = holeContoursForMode(mask, width, height, mode);
 
   const scale = mode === 'strong' ? 4 : 3;
   const hi = document.createElement('canvas');
@@ -72,7 +73,15 @@ function rasterMask(
     hiContext.lineTo(contour[i].x + 0.5, contour[i].y + 0.5);
   }
   hiContext.closePath();
-  hiContext.fill();
+
+  for (const hole of holes) {
+    hiContext.moveTo(hole[0].x + 0.5, hole[0].y + 0.5);
+    for (let i = 1; i < hole.length; i += 1) {
+      hiContext.lineTo(hole[i].x + 0.5, hole[i].y + 0.5);
+    }
+    hiContext.closePath();
+  }
+  hiContext.fill('evenodd');
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
