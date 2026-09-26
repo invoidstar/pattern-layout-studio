@@ -32,7 +32,11 @@ import {
   sourceRegionsFor,
   unionSourceBoxes,
 } from '../features/provenance/source-regions';
-import { buildProjectFromFiles } from '../features/project/build-project';
+import {
+  buildProjectFromFiles,
+  NoValidSourceError,
+} from '../features/project/build-project';
+import type { InvalidSourceSize } from '../features/extraction/source-validation';
 import type {
   PaintSession,
   QualityReport,
@@ -44,6 +48,7 @@ import SourcePanel from '../components/SourcePanel';
 import CommandBar from '../components/CommandBar';
 import CanvasPanel from '../components/CanvasPanel';
 import InspectorPanel from '../components/InspectorPanel';
+import InputSizeNotice from '../components/InputSizeNotice';
 import {
   DEFAULT_PACKING_GAP,
   HISTORY_LIMIT,
@@ -56,7 +61,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.8：模块化架构、多图项目、统一分页与精确来源追踪已启用。');
+  const [status, setStatus] = useState('V1.8.1：仅接受 3500×3500 或 A4 图纸；不合规尺寸会在进入分割前过滤。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -74,6 +79,10 @@ export default function App() {
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [packingGap, setPackingGap] = useState(DEFAULT_PACKING_GAP);
   const [moveTargetPage, setMoveTargetPage] = useState(0);
+  const [inputSizeNotice, setInputSizeNotice] = useState<{
+    items: InvalidSourceSize[];
+    blocked: boolean;
+  } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -302,6 +311,7 @@ export default function App() {
     if (!files.length) return;
 
     setBusy(true);
+    setInputSizeNotice(null);
     setSelectedIds([]);
     setQuality(null);
     setSourceReferences([]);
@@ -333,17 +343,37 @@ export default function App() {
       setBackgroundCss(project.backgroundCss);
       setSourceInfo(project.sourceInfo);
       setQuality(project.quality);
+      setInputSizeNotice(
+        project.invalidSources.length
+          ? { items: project.invalidSources, blocked: false }
+          : null,
+      );
 
       setStatus(
         project.quality.unplaceableCount
-          ? `V1.8 完成：${project.sources.length} 张图片的 ${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。`
-          : `V1.8 完成：${project.sources.length} 张图片、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
+          ? `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}`
+          : `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
       );
     } catch (error) {
       console.error(error);
-      setStatus(
-        `批量处理失败：${error instanceof Error ? error.message : '未知错误'}`,
-      );
+
+      if (error instanceof NoValidSourceError) {
+        if (error.invalidSources.length) {
+          setInputSizeNotice({
+            items: error.invalidSources,
+            blocked: true,
+          });
+        }
+        setStatus(
+          error.invalidSources.length
+            ? `已阻止后续工作流：上传的 ${error.invalidSources.length} 张图纸均不符合尺寸要求。`
+            : `批量处理失败：${error.message}`,
+        );
+      } else {
+        setStatus(
+          `批量处理失败：${error instanceof Error ? error.message : '未知错误'}`,
+        );
+      }
     } finally {
       setBusy(false);
     }
@@ -983,9 +1013,16 @@ export default function App() {
 
   return (
     <main className="app-shell v14-shell v16-shell">
+      {inputSizeNotice && (
+        <InputSizeNotice
+          items={inputSizeNotice.items}
+          blocked={inputSizeNotice.blocked}
+          onClose={() => setInputSizeNotice(null)}
+        />
+      )}
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.8</span>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.8.1</span>
           <h1>Pattern Layout Studio</h1>
           <p>
             多图拆件、精确来源追踪、全局分页优化与人工修正整合在一个浏览器工作台中；
