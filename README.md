@@ -4,7 +4,7 @@
 
 ### Turn one or many pattern sheets into clean, traceable, no-scale print layouts — entirely in the browser.
 
-[![Version](https://img.shields.io/badge/version-v1.8-4f63d8?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
+[![Version](https://img.shields.io/badge/version-v1.8.1-4f63d8?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
 [![React](https://img.shields.io/badge/React-19-20232a?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-latest-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-latest-646cff?style=flat-square&logo=vite&logoColor=white)](https://vite.dev/)
@@ -67,7 +67,15 @@ flowchart LR
 
 Select one or multiple source images.
 
-For a multi-image project the sources are processed sequentially to keep browser memory usage under control.
+Before any segmentation/OCR work begins, V1.8.1 runs an input-size gate. Accepted drawing dimensions are:
+
+- **3500 × 3500**
+- **A4 landscape: 2970 × 2100**
+- **A4 portrait: 2100 × 2970**
+
+Unsupported dimensions are filtered from the project and shown in an on-screen warning dialog. Valid images continue through the workflow. If every uploaded image is invalid, processing stops before extraction.
+
+For a multi-image project the valid sources are processed sequentially to keep browser memory usage under control.
 
 ### 2. Extract
 
@@ -307,6 +315,7 @@ The counter is loaded as a small optional client-side widget and is isolated fro
 
 | Version | Focus |
 | --- | --- |
+| **V1.8.1** | Input-size gate for 3500×3500 / A4 drawings |
 | **V1.8** | Modular code architecture, showcase README, traffic widget |
 | **V1.7** | Multi-image projects and unified cross-source page packing |
 | **V1.6** | Cross-page transfer, global page compaction, workspace redesign |
