@@ -3,7 +3,9 @@ import { estimateBackgroundModel } from './core/background';
 import {
   buildForegroundMask,
   extractComponents,
-  groupDecorativeComponents,
+  groupLabeledComponents,
+  labelComponents,
+  localMaskFromLabels,
   type ComponentBox,
   type SplitStrength,
 } from './core/segmentation';
@@ -15,14 +17,15 @@ import {
   type TextRegion,
 } from './core/text-filter';
 import { detectOcrTextRegions } from './core/ocr';
-import { renderPart } from './core/alpha';
+import { renderPartFromLocalMask } from './core/alpha';
+import { outerContoursForMode } from './core/contour';
 import {
   packIntoMultiplePages,
   type PackingDiagnostics,
 } from './core/packing';
 import { centerLayout, validateNoScaleFit } from './core/converter';
 import { buildPagesZip, downloadBlob, renderLayoutPage } from './core/export';
-import type { CanvasSize, PatternPart, SourceBox } from './types';
+import type { CanvasSize, PatternPart, SourceBox, SourcePoint } from './types';
 
 const TARGETS: Record<'square' | 'a4', CanvasSize> = {
   square: { width: 3500, height: 3500, label: '3500 × 3500' },
@@ -65,6 +68,8 @@ interface PaintSession {
   source: HTMLImageElement;
   mode: 'brush' | 'eraser';
   pointerId: number;
+  lastX: number;
+  lastY: number;
 }
 
 interface SourceReference {
@@ -105,6 +110,11 @@ function cloneParts(parts: PatternPart[]): PatternPart[] {
           sourceBox: part.stats.sourceBox ? { ...part.stats.sourceBox } : undefined,
           sourceBoxes: part.stats.sourceBoxes
             ? part.stats.sourceBoxes.map((box) => ({ ...box }))
+            : undefined,
+          sourceContours: part.stats.sourceContours
+            ? part.stats.sourceContours.map((contour) =>
+                contour.map((point) => ({ ...point })),
+              )
             : undefined,
         }
       : undefined,
@@ -371,13 +381,23 @@ export default function App() {
   const unplaceableCount = parts.filter((part) => part.overflow).length;
   const sourceTraceItems = useMemo(
     () =>
-      currentPageParts.flatMap((part) =>
-        sourceBoxesFor(part).map((box, index) => ({
+      currentPageParts.flatMap((part) => {
+        const contours = part.stats?.sourceContours ?? [];
+        if (contours.length) {
+          return contours.map((contour, index) => ({
+            part,
+            contour,
+            box: undefined as SourceBox | undefined,
+            index,
+          }));
+        }
+        return sourceBoxesFor(part).map((box, index) => ({
           part,
+          contour: undefined as SourcePoint[] | undefined,
           box,
           index,
-        })),
-      ),
+        }));
+      }),
     [currentPageParts],
   );
   const selectedSourceBoxes = useMemo(
@@ -537,7 +557,7 @@ export default function App() {
     undoRef.current = [];
     redoRef.current = [];
     setHistoryTick((value) => value + 1);
-    setStatus('正在执行 V1.4 分割、来源追踪与自动分页…');
+    setStatus('正在执行 V1.5 精确形状裁切、颜色保留与自动分页…');
     setCurrentPageIndex(0);
     setSourceReference(null);
 
@@ -609,43 +629,51 @@ export default function App() {
         96,
         Math.round(sourceCanvas.width * sourceCanvas.height * 0.00005),
       );
-      let boxes = extractComponents(
+      const labeled = labelComponents(
         smoothed.mask,
         sourceCanvas.width,
         sourceCanvas.height,
         minArea,
       );
 
-      if (!boxes.length) {
-        boxes = [{
+      if (!labeled.components.length) {
+        labeled.labels.fill(1);
+        labeled.components.push({
+          label: 1,
           x: 0,
           y: 0,
           width: sourceCanvas.width,
           height: sourceCanvas.height,
           area: sourceCanvas.width * sourceCanvas.height,
-        }];
-        smoothed.mask.fill(1);
+        });
       }
 
-      const rawComponentCount = boxes.length;
-      const grouping = groupDecorativeComponents(
-        boxes,
+      const rawComponentCount = labeled.components.length;
+      const grouping = groupLabeledComponents(
+        labeled.components,
         sourceCanvas.width,
         sourceCanvas.height,
         splitStrength,
       );
-      boxes = grouping.boxes;
+      const boxes = grouping.groups.map((group) => group.box);
 
       const stamp = Date.now();
-      const extracted: PatternPart[] = boxes.map((rawBox, index) => {
+      const extracted: PatternPart[] = grouping.groups.map((group, index) => {
+        const rawBox = group.box;
         const box = padBox(rawBox, sourceCanvas.width, sourceCanvas.height);
-        const rendered = renderPart(
-          sourceCanvas,
-          smoothed.mask,
-          afterTextMask,
+        const exactLocalMask = localMaskFromLabels(
+          labeled.labels,
           sourceCanvas.width,
           box,
+          group.labels,
+        );
+        const rendered = renderPartFromLocalMask(
+          sourceCanvas,
+          exactLocalMask,
+          box,
           smoothing,
+          true,
+          false,
         );
 
         return {
@@ -653,6 +681,7 @@ export default function App() {
           name: `零件 ${index + 1}`,
           imageUrl: rendered.imageUrl,
           sourceImageUrl: rendered.sourceImageUrl,
+          rawSourceImageUrl: rendered.rawSourceImageUrl,
           width: rendered.width,
           height: rendered.height,
           x: 0,
@@ -677,6 +706,7 @@ export default function App() {
               width: box.width,
               height: box.height,
             }],
+            sourceContours: rendered.sourceContours,
           },
         };
       });
@@ -721,8 +751,8 @@ export default function App() {
 
       setStatus(
         arrangedResult.unplaceableCount
-          ? `V1.3 自动分页完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布，无法放入。`
-          : `V1.3 完成：${rawComponentCount} 个连通组件归并为 ${boxes.length} 个零件（内部装饰归并 ${grouping.mergedDecorationCount}），共 ${arrangedResult.pageCount} 页。`,
+          ? `V1.5 精确形状裁切完成：共 ${arrangedResult.pageCount} 页；另有 ${arrangedResult.unplaceableCount} 个零件自身大于目标画布。`
+          : `V1.5 完成：${rawComponentCount} 个组件归并为 ${boxes.length} 个逻辑零件，使用精确成员 mask 裁切，内部颜色已保留。`,
       );
     } catch (error) {
       console.error(error);
@@ -789,24 +819,33 @@ export default function App() {
   ) {
     pushHistory();
     const currentImage = await loadImage(part.imageUrl);
-    const sourceImage = await loadImage(part.sourceImageUrl ?? part.imageUrl);
+    const sourceImage = await loadImage(
+      part.rawSourceImageUrl ?? part.sourceImageUrl ?? part.imageUrl,
+    );
     const editCanvas = document.createElement('canvas');
     editCanvas.width = part.width;
     editCanvas.height = part.height;
     editCanvas.getContext('2d')!.drawImage(currentImage, 0, 0, part.width, part.height);
 
+    const localX = point.x - part.x;
+    const localY = point.y - part.y;
     paintRef.current = {
       partId: part.id,
       canvas: editCanvas,
       source: sourceImage,
       mode,
       pointerId,
+      lastX: localX,
+      lastY: localY,
     };
-    if (!canvasElement.hasPointerCapture(pointerId)) canvasElement.setPointerCapture(pointerId);
-    applyPaintDab(point.x - part.x, point.y - part.y);
+    if (!canvasElement.hasPointerCapture(pointerId)) {
+      canvasElement.setPointerCapture(pointerId);
+    }
+    applyPaintAt(localX, localY);
+    setRenderTick((value) => value + 1);
   }
 
-  function applyPaintDab(localX: number, localY: number) {
+  function applyPaintAt(localX: number, localY: number) {
     const session = paintRef.current;
     if (!session) return;
     const context = session.canvas.getContext('2d')!;
@@ -823,9 +862,37 @@ export default function App() {
       context.fillRect(localX - radius, localY - radius, radius * 2, radius * 2);
     } else {
       context.globalCompositeOperation = 'source-over';
-      context.drawImage(session.source, 0, 0, session.canvas.width, session.canvas.height);
+      context.drawImage(
+        session.source,
+        0,
+        0,
+        session.canvas.width,
+        session.canvas.height,
+      );
     }
     context.restore();
+  }
+
+  function applyPaintLine(localX: number, localY: number) {
+    const session = paintRef.current;
+    if (!session) return;
+
+    const dx = localX - session.lastX;
+    const dy = localY - session.lastY;
+    const distance = Math.hypot(dx, dy);
+    const spacing = Math.max(1, brushSize * 0.18);
+    const steps = Math.max(1, Math.ceil(distance / spacing));
+
+    for (let step = 1; step <= steps; step += 1) {
+      const ratio = step / steps;
+      applyPaintAt(
+        session.lastX + dx * ratio,
+        session.lastY + dy * ratio,
+      );
+    }
+
+    session.lastX = localX;
+    session.lastY = localY;
     setRenderTick((value) => value + 1);
   }
 
@@ -880,7 +947,7 @@ export default function App() {
     const paint = paintRef.current;
     if (paint && paint.pointerId === event.pointerId) {
       const part = parts.find((item) => item.id === paint.partId);
-      if (part) applyPaintDab(point.x - part.x, point.y - part.y);
+      if (part) applyPaintLine(point.x - part.x, point.y - part.y);
       return;
     }
 
@@ -971,6 +1038,7 @@ export default function App() {
         name: `合并零件 ${selected.length}`,
         imageUrl: mergedUrl,
         sourceImageUrl: mergedUrl,
+        rawSourceImageUrl: mergedUrl,
         width: canvas.width,
         height: canvas.height,
         x: minX,
@@ -983,6 +1051,9 @@ export default function App() {
           smoothingApplied: true,
           sourceBox: mergedSourceBox,
           sourceBoxes: mergedSourceBoxes,
+          sourceContours: selected.flatMap(
+            (part) => part.stats?.sourceContours ?? [],
+          ),
         },
       };
 
@@ -1028,8 +1099,14 @@ export default function App() {
 
       pushHistory();
       const parentSourceBoxes = sourceBoxesFor(selectedPart);
+      const rawParent = await loadImage(
+        selectedPart.rawSourceImageUrl ??
+          selectedPart.sourceImageUrl ??
+          selectedPart.imageUrl,
+      );
       const pieces: PatternPart[] = boxes.map((box, index) => {
         const pieceUrl = cropCanvas(image, box);
+        const rawPieceUrl = cropCanvas(rawParent, box);
         const mappedSourceBox =
           parentSourceBoxes.length === 1
             ? {
@@ -1039,11 +1116,36 @@ export default function App() {
                 height: box.height,
               }
             : undefined;
+
+        const childMask = new Uint8Array(box.width * box.height);
+        for (let y = 0; y < box.height; y += 1) {
+          for (let x = 0; x < box.width; x += 1) {
+            childMask[y * box.width + x] =
+              mask[(box.y + y) * canvas.width + box.x + x];
+          }
+        }
+
+        const mappedContours =
+          mappedSourceBox
+            ? outerContoursForMode(
+                childMask,
+                box.width,
+                box.height,
+                'off',
+              ).map((contour) =>
+                contour.map((point) => ({
+                  x: mappedSourceBox.x + point.x,
+                  y: mappedSourceBox.y + point.y,
+                })),
+              )
+            : selectedPart.stats?.sourceContours;
+
         return {
           id: `split-${Date.now()}-${index}`,
           name: `${selectedPart.name} · ${index + 1}`,
           imageUrl: pieceUrl,
           sourceImageUrl: pieceUrl,
+          rawSourceImageUrl: rawPieceUrl,
           width: box.width,
           height: box.height,
           x: selectedPart.x + box.x,
@@ -1058,17 +1160,21 @@ export default function App() {
             sourceBoxes: mappedSourceBox
               ? [mappedSourceBox]
               : parentSourceBoxes,
+            sourceContours: mappedContours,
           },
         };
       });
 
-      setParts((current) => [
-        ...current.filter((part) => part.id !== selectedPart.id),
-        ...pieces,
-      ]);
+      setParts((current) =>
+        current.flatMap((part) =>
+          part.id === selectedPart.id ? pieces : [part],
+        ),
+      );
       setSelectedIds(pieces.map((part) => part.id));
-      imageCacheRef.current.clear();
-      setStatus(`已拆分为 ${pieces.length} 个独立零件。`);
+      imageCacheRef.current.delete(selectedPart.imageUrl);
+      setStatus(
+        `已将原零件原子替换为 ${pieces.length} 个子零件，父零件不会残留。`,
+      );
     } finally {
       setBusy(false);
     }
@@ -1153,14 +1259,14 @@ export default function App() {
     <main className="app-shell v14-shell">
       <section className="hero">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.4</span>
-          <h1>原图追踪 · 多页排版工作台</h1>
+          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.5</span>
+          <h1>精确形状裁切 · 原图追踪工作台</h1>
           <p>
-            V1.4 在拆件与自动分页之外加入“来源追踪”：选择任意转换后零件，
-            左侧原图会立即标出它来自哪里；手动合并后的零件也可保留多个来源区域。
+            V1.5 不再把外接矩形里的其他前景误带进零件：每个逻辑零件按精确组件 mask 裁切，
+            主体内部原始颜色默认保留；画笔改为连续插值并可从原始 RGB 真正恢复。
           </p>
         </div>
-        <div className="hero-badge">Source Trace</div>
+        <div className="hero-badge">Shape Exact</div>
       </section>
 
       <section className="control-grid v12-grid">
@@ -1518,7 +1624,7 @@ export default function App() {
       </section>
 
       <footer>
-        <span>V1.4 · source trace · host-aware grouping · smooth contour · automatic pagination</span>
+        <span>V1.5 · exact shape mask · preserve RGB · source contour · automatic pagination</span>
         <span>Current-page PNG · all-pages ZIP · no-scale · PNG DPI · manual repair</span>
       </footer>
     </main>
