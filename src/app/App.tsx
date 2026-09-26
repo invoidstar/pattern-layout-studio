@@ -333,6 +333,14 @@ export default function App() {
         smoothing,
         splitStrength,
         onStatus: setStatus,
+        onInvalidSources: (items) => {
+          if (items.length) {
+            setInputSizeNotice({
+              items,
+              blocked: false,
+            });
+          }
+        },
       });
 
       imageCacheRef.current.clear();
