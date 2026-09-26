@@ -1,116 +1,113 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part extraction, exact shape masking, source tracing, cross-page layout editing, global page compaction and PNG/ZIP export.
+Browser-side pattern-part extraction, exact shape masking, multi-source provenance, unified multi-image page layout editing and PNG/ZIP export.
 
-## V1.6
+## V1.7
 
-The current pipeline is:
+V1.7 upgrades the project from a single-source editor into a **multi-image project workspace**.
 
-**Upload → text exclusion → morphology → exact shape extraction → host-aware grouping → source trace → global multi-page MaxRects → cross-page editing → repair tools → PNG / ZIP**
+The pipeline is now:
 
-### Cross-page part transfer
+**Select multiple images → sequential per-source extraction → exact source provenance → combine all parts → unified global page packing → cross-page editing → PNG / ZIP export**
 
-V1.6 lets users explicitly control which page contains a part.
+### Multi-image upload
 
-Select one or more parts, then use the Inspector to:
+The upload control accepts one or more:
 
-- move them to any existing page
-- send them to the previous / next page
-- create a new page for the selected parts
+- PNG
+- JPEG
+- WebP
 
-A transfer is validated before it is applied. The target page is repacked with:
+When multiple files are selected, they are processed sequentially to avoid running several large image pipelines in memory at the same time.
 
-**existing target-page parts + selected parts**
+Progress is reported as:
 
-If every part cannot fit at 1:1 size, the move is rejected and the current layout is preserved.
+`1 / N → 2 / N → ... → N / N`
 
-After a successful transfer:
+After all successful sources have been extracted, their parts are combined into one project and sent through the page solver **once**.
 
-- the target page is repacked
-- affected source pages are repacked
-- empty pages are removed
-- page indexes are compacted
-- selection follows the moved parts
+This is important: the tool does not make separate pages per source image. Parts from different originals can share the same page when that improves utilization.
 
-### Global page compaction
+### Unified page packing
 
-Automatic pagination now performs a second global optimization pass after the normal per-page MaxRects solve.
+All extracted parts from all successful sources are combined before:
 
-The optimizer:
+- MaxRects page generation
+- global whole-page merging
+- cross-page backfill
+- page compaction
 
-1. tries to merge complete later pages into earlier pages
-2. backfills individual parts from later pages into earlier pages
-3. repacks both affected pages after every accepted move
-4. removes empty pages and reindexes pages
+Therefore:
 
-Every candidate merge / move is accepted only when a fresh MaxRects solve can place the complete page without scaling.
+> Source A part + Source B part + Source C part can all be placed on Page 1.
 
-### Packing gap control
+All V1.6 page features remain available:
 
-The Inspector exposes the inter-part packing gap:
+- cross-page transfer
+- previous / next page move
+- create new page
+- global page optimization
+- packing-gap control
+- utilization metrics
 
-- 4–32 px
-- default: 16 px
+### Multi-source provenance
 
-Changing the value does not silently alter the existing project. Use **全局优化分页** to repack with the new spacing.
+Every automatic part stores a `sourceId` and a source region containing:
 
-### Page utilization
+- original source image ID
+- crop box
+- exact source contours
 
-The UI now shows:
+Selecting a normal part automatically switches Source Trace to its original image.
 
-- utilization directly on every Page chip
-- current-page utilization
-- overall utilization across all generated pages
-- number of parts on each page
+The Source panel now includes an original-image thumbnail strip:
 
-Utilization is based on the actual no-scale part bounding areas used by the packing solver.
+- S1
+- S2
+- S3
+- ...
 
-### V1.6 workspace redesign
+Users can also switch sources manually.
 
-The editor is now structured as a compact production workspace.
+### Merge / split across sources
 
-#### Top command bar
+Manual Merge can combine parts originating from different source images.
 
-Upload, text filtering, split/edge controls, target size and export are grouped into a sticky compact command bar instead of large stacked cards.
+The merged part keeps multiple independent `sourceRegions`, so provenance is not flattened into one invalid coordinate system.
 
-#### Source
+For a merged multi-source part:
 
-Original-image source contours and debug information stay on the left.
+- Source 1 can display the Source 1 contribution
+- Source 2 can display the Source 2 contribution
+- switching Source does not lose the selection
 
-#### Canvas
+Split preserves or refines provenance when the mapping is unambiguous.
 
-The central Canvas is the primary visual area.
+### Batch failure behavior
 
-A clickable page strip sits directly above it:
+If one selected image fails processing:
 
-- P1 / P2 / P3…
-- part count
-- utilization percentage
+- the remaining successful images still form the project
+- the failed-source count is shown in the status
+- processing only stops completely when every selected image fails
 
-#### Inspector
-
-The right-side Inspector contains, in workflow order:
-
-1. cross-page transfer
-2. page-utilization / gap controls
-3. quality metrics
-4. current-page part list
-
-### V1.5 capabilities retained
+### V1.6 / V1.5 capabilities retained
 
 - exact component-label masks
 - internal RGB preservation
-- precise source contours
+- source contour overlay
 - host-aware grouping
+- text filtering / optional OCR
 - continuous repair brush / eraser
 - atomic Split
-- multi-page export
+- global page compaction
+- cross-page transfer
 - current-page PNG
 - all-pages ZIP
 - 3500×3500 / 2970×2100
 - no-scale semantics
 - DPI / PNG pHYs metadata
-- Merge / Split / Undo / Redo
+- Undo / Redo
 
 ## Live site
 
@@ -118,11 +115,11 @@ https://invoidstar.github.io/pattern-layout-studio/
 
 ## Documentation
 
+- [V1.7 implementation](docs/V1.7_IMPLEMENTATION.md)
+- [V1.7 acceptance](docs/V1.7_ACCEPTANCE.md)
 - [V1.6 implementation](docs/V1.6_IMPLEMENTATION.md)
 - [V1.6 acceptance](docs/V1.6_ACCEPTANCE.md)
-- [V1.5 implementation](docs/V1.5_IMPLEMENTATION.md)
-- [V1.5 acceptance](docs/V1.5_ACCEPTANCE.md)
 
 ## Privacy
 
-Image processing happens in the browser. Uploaded pattern images are not committed to this repository. Optional OCR downloads OCR runtime/language data only when enabled.
+Image processing happens in the browser. Uploaded images are not committed to this repository. Optional OCR downloads OCR runtime/language data only when enabled.
