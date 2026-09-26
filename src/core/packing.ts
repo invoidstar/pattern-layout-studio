@@ -367,6 +367,30 @@ export function packIntoMultiplePages(
           overflowCount: 0,
         },
       });
+    } else if (item.width <= canvas.width && item.height <= canvas.height) {
+      // The part itself fits, but the normal packing margin/gap does not.
+      // Give it a dedicated page with no artificial edge gap.
+      const dedicated = {
+        ...item,
+        x: Math.round((canvas.width - item.width) / 2),
+        y: Math.round((canvas.height - item.height) / 2),
+        placed: true,
+      };
+      pages.push({
+        pageIndex: pages.length,
+        items: [dedicated],
+        diagnostics: {
+          strategy: 'dedicated-fit',
+          placedCount: 1,
+          overflowCount: 0,
+          placedArea: item.width * item.height,
+          canvasArea: canvas.width * canvas.height,
+          utilization:
+            (item.width * item.height) / Math.max(1, canvas.width * canvas.height),
+          boundsWidth: item.width,
+          boundsHeight: item.height,
+        },
+      });
     } else {
       unplaceable.push({ ...item, placed: false });
     }
