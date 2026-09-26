@@ -40,3 +40,53 @@ export function assertAllowedSourceSize(
 
 export const ALLOWED_SOURCE_SIZE_LABEL =
   '3500 × 3500，或 A4：2970 × 2100 / 2100 × 2970';
+
+async function readSourceDimensions(file: File): Promise<{
+  width: number;
+  height: number;
+}> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('Image decode failed'));
+      element.src = url;
+    });
+    return {
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+export async function preflightSourceFiles(files: File[]): Promise<{
+  validFiles: File[];
+  invalidSources: InvalidSourceSize[];
+}> {
+  const validFiles: File[] = [];
+  const invalidSources: InvalidSourceSize[] = [];
+
+  for (const file of files) {
+    try {
+      const { width, height } = await readSourceDimensions(file);
+      if (isAllowedSourceSize(width, height)) {
+        validFiles.push(file);
+      } else {
+        invalidSources.push({
+          fileName: file.name,
+          width,
+          height,
+        });
+      }
+    } catch {
+      // Dimension preflight intentionally leaves unreadable files to the
+      // normal source-processing error path, which already reports failures.
+      validFiles.push(file);
+    }
+  }
+
+  return { validFiles, invalidSources };
+}
