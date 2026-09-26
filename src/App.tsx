@@ -409,6 +409,10 @@ export default function App() {
     [parts, pageCount, target],
   );
   const currentPageStats = pageStats[currentPageIndex];
+  const overallUtilization = pageCount
+    ? pageStats.reduce((total, page) => total + page.usedArea, 0) /
+      Math.max(1, pageCount * target.width * target.height)
+    : 0;
   const sourceTraceItems = useMemo(
     () =>
       currentPageParts.flatMap((part) => {
@@ -1873,7 +1877,8 @@ export default function App() {
               <div><span>填孔</span><strong>{quality.morphology.filledHoleCount}</strong></div>
               <div><span>MaxRects</span><strong>{quality.packing.strategy}</strong></div>
               <div><span>当前页零件</span><strong>{currentPageParts.length}</strong></div>
-              <div><span>画布利用率</span><strong>{(quality.packing.utilization * 100).toFixed(1)}%</strong></div>
+              <div><span>当前页利用率</span><strong>{((currentPageStats?.utilization ?? 0) * 100).toFixed(1)}%</strong></div>
+              <div><span>整体利用率</span><strong>{(overallUtilization * 100).toFixed(1)}%</strong></div>
             </div>
           )}
 
