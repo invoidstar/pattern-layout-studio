@@ -12,6 +12,10 @@ import type {
 } from './model';
 import type { PatternPart } from '../../domain';
 import type { MorphologyStats } from '../../core/vision/morphology';
+import {
+  InvalidSourceSizeError,
+  type InvalidSourceSize,
+} from '../extraction/source-validation';
 
 export interface BuildProjectOptions {
   targetKey: 'square' | 'a4';
@@ -33,6 +37,26 @@ export interface BuiltProject {
   sourceInfo: string;
   backgroundCss: string;
   failedFiles: string[];
+  invalidSources: InvalidSourceSize[];
+}
+
+export class NoValidSourceError extends Error {
+  readonly invalidSources: InvalidSourceSize[];
+  readonly failedFiles: string[];
+
+  constructor(
+    invalidSources: InvalidSourceSize[],
+    failedFiles: string[],
+  ) {
+    super(
+      invalidSources.length
+        ? '没有符合尺寸要求的图纸可继续处理。'
+        : '所有图片均处理失败。',
+    );
+    this.name = 'NoValidSourceError';
+    this.invalidSources = invalidSources;
+    this.failedFiles = failedFiles;
+  }
 }
 
 function aggregateMorphology(
@@ -71,6 +95,7 @@ export async function buildProjectFromFiles(
   const batchId = `batch-${Date.now()}`;
   const results: ProcessedSourceResult[] = [];
   const failedFiles: string[] = [];
+  const invalidSources: InvalidSourceSize[] = [];
 
   for (let index = 0; index < files.length; index += 1) {
     try {
@@ -87,13 +112,21 @@ export async function buildProjectFromFiles(
       });
       results.push(result);
     } catch (error) {
+      if (error instanceof InvalidSourceSizeError) {
+        invalidSources.push(error.details);
+        options.onStatus?.(
+          `已过滤尺寸不合规图纸：${error.details.fileName} · ${error.details.width} × ${error.details.height}`,
+        );
+        continue;
+      }
+
       console.error(`Failed to process ${files[index].name}`, error);
       failedFiles.push(files[index].name);
     }
   }
 
   if (!results.length) {
-    throw new Error('所有图片均处理失败');
+    throw new NoValidSourceError(invalidSources, failedFiles);
   }
 
   const allParts = results.flatMap((result) => result.parts);
@@ -164,8 +197,9 @@ export async function buildProjectFromFiles(
     sources,
     quality,
     sourceInfo:
-      `${results.length} 张图片 · ${allParts.length} 个零件${failedFiles.length ? ` · ${failedFiles.length} 张失败` : ''}`,
+      `${results.length} 张有效图纸 · ${allParts.length} 个零件${invalidSources.length ? ` · ${invalidSources.length} 张尺寸过滤` : ''}${failedFiles.length ? ` · ${failedFiles.length} 张失败` : ''}`,
     backgroundCss: sources[0].backgroundCss,
     failedFiles,
+    invalidSources,
   };
 }
