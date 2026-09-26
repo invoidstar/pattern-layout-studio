@@ -190,3 +190,23 @@ footer{display:flex;justify-content:space-between;gap:16px;padding:18px 4px 0;co
   .brush-size input{flex:1}
   .debug-grid{grid-template-columns:1fr}
 }
+
+/* V1.3 multi-page */
+.secondary-export{
+  width:100%;margin-top:8px;border:1px solid #cfd7e7;border-radius:11px;padding:10px 12px;
+  background:#f5f7fc;color:#4052bc;font-weight:800
+}
+.secondary-export:hover:not(:disabled){background:#eaeefe}
+.page-nav{
+  display:inline-flex;align-items:center;gap:7px;margin-top:9px;padding:4px;
+  border-radius:11px;background:#f2f4f8
+}
+.page-nav button{
+  width:30px;height:28px;border:0;border-radius:8px;background:#fff;color:#4255c5;
+  font-size:18px;line-height:1;font-weight:800;box-shadow:0 2px 7px rgba(41,54,96,.08)
+}
+.page-nav span{min-width:66px;text-align:center;color:#667085;font-size:11px;font-weight:800}
+@media (max-width:680px){
+  .page-nav{margin-top:10px}
+  .secondary-export{margin-top:10px}
+}
