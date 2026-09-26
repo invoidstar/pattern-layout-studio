@@ -1,4 +1,4 @@
-import type { PatternPart, SourceBox, SourceRegion } from '../../types';
+import type { PatternPart, SourceBox, SourceRegion } from '../../domain';
 
 export function cloneParts(parts: PatternPart[]): PatternPart[] {
   return parts.map((part) => ({
