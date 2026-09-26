@@ -1,84 +1,116 @@
 # Pattern Layout Studio
 
-Browser-side pattern-part extraction, exact shape masking, source tracing, no-scale multi-page layout editing and PNG/ZIP export.
+Browser-side pattern-part extraction, exact shape masking, source tracing, cross-page layout editing, global page compaction and PNG/ZIP export.
 
-## V1.5
+## V1.6
 
 The current pipeline is:
 
-**Upload → text exclusion → morphology → exact component labels → host-aware logical grouping → exact shape mask → internal RGB preservation → source contours → multi-page MaxRects → repair editor → PNG / ZIP**
+**Upload → text exclusion → morphology → exact shape extraction → host-aware grouping → source trace → global multi-page MaxRects → cross-page editing → repair tools → PNG / ZIP**
 
-### Exact shape extraction
+### Cross-page part transfer
 
-V1.5 no longer treats a bounding rectangle as the part itself.
+V1.6 lets users explicitly control which page contains a part.
 
-Each significant connected component receives an integer label. After host-aware grouping, every logical part keeps the exact labels that belong to it. The local crop mask is reconstructed from those labels only.
+Select one or more parts, then use the Inspector to:
 
-This means:
+- move them to any existing page
+- send them to the previous / next page
+- create a new page for the selected parts
 
-- unrelated foreground inside the same bounding rectangle is excluded;
-- neighbouring parts no longer contaminate one another;
-- bounding boxes are only storage / crop bounds;
-- alpha comes from the exact logical-part mask.
+A transfer is validated before it is applied. The target page is repacked with:
 
-### Preserve original colours
+**existing target-page parts + selected parts**
 
-Internal colours are no longer removed merely because they are close to the global background colour.
+If every part cannot fit at 1:1 size, the move is rejected and the current layout is preserved.
 
-For each logical part, background connected to the crop border stays transparent, while enclosed interior regions are restored into the silhouette before the original RGB crop is applied.
+After a successful transfer:
 
-This prevents face / garment interiors from turning into unintended alpha holes.
+- the target page is repacked
+- affected source pages are repacked
+- empty pages are removed
+- page indexes are compacted
+- selection follows the moved parts
 
-### Shape-level source trace
+### Global page compaction
 
-The Source Trace panel now prefers exact contours over rectangular boxes.
+Automatic pagination now performs a second global optimization pass after the normal per-page MaxRects solve.
 
-- automatic parts store original-image contours
-- selected parts highlight their real source shape
-- merged parts retain multiple source contours
-- split parts refine the source contour when exact mapping is possible
-- rectangles remain only as a fallback / coordinate summary
+The optimizer:
 
-### Split fix
+1. tries to merge complete later pages into earlier pages
+2. backfills individual parts from later pages into earlier pages
+3. repacks both affected pages after every accepted move
+4. removes empty pages and reindexes pages
 
-Split is now an atomic parent replacement:
+Every candidate merge / move is accepted only when a fresh MaxRects solve can place the complete page without scaling.
 
-- parent part is removed
-- child parts are inserted in the same state update
-- stale parent image cache is discarded
-- selection switches to the children
-- source provenance is updated
+### Packing gap control
 
-The parent part cannot remain in the layout after a successful split.
+The Inspector exposes the inter-part packing gap:
 
-### Brush / eraser rewrite
+- 4–32 px
+- default: 16 px
 
-The repair tools now use continuous stroke interpolation instead of sparse pointer-event dabs.
+Changing the value does not silently alter the existing project. Use **全局优化分页** to repack with the new spacing.
 
-Restore brush:
+### Page utilization
 
-- reads from the raw, unmasked source crop
-- restores original RGB + alpha
-- interpolates between pointer samples
-- has a larger transparent repair margin around automatic crops
+The UI now shows:
 
-Eraser uses the same continuous interpolation and removes alpha smoothly along the stroke.
+- utilization directly on every Page chip
+- current-page utilization
+- overall utilization across all generated pages
+- number of parts on each page
 
-### V1.4 / V1.3 capabilities retained
+Utilization is based on the actual no-scale part bounding areas used by the packing solver.
 
-- three-column Source / Canvas / Parts workspace
-- source coordinate display
-- host-aware over-segmentation reduction
-- text filtering / optional OCR
-- smooth contours
-- automatic multi-page packing
+### V1.6 workspace redesign
+
+The editor is now structured as a compact production workspace.
+
+#### Top command bar
+
+Upload, text filtering, split/edge controls, target size and export are grouped into a sticky compact command bar instead of large stacked cards.
+
+#### Source
+
+Original-image source contours and debug information stay on the left.
+
+#### Canvas
+
+The central Canvas is the primary visual area.
+
+A clickable page strip sits directly above it:
+
+- P1 / P2 / P3…
+- part count
+- utilization percentage
+
+#### Inspector
+
+The right-side Inspector contains, in workflow order:
+
+1. cross-page transfer
+2. page-utilization / gap controls
+3. quality metrics
+4. current-page part list
+
+### V1.5 capabilities retained
+
+- exact component-label masks
+- internal RGB preservation
+- precise source contours
+- host-aware grouping
+- continuous repair brush / eraser
+- atomic Split
+- multi-page export
 - current-page PNG
 - all-pages ZIP
-- 3500×3500
-- 2970×2100
-- no-scale dimensions
-- configurable DPI / PNG pHYs metadata
-- merge / split / Undo / Redo
+- 3500×3500 / 2970×2100
+- no-scale semantics
+- DPI / PNG pHYs metadata
+- Merge / Split / Undo / Redo
 
 ## Live site
 
@@ -86,11 +118,10 @@ https://invoidstar.github.io/pattern-layout-studio/
 
 ## Documentation
 
+- [V1.6 implementation](docs/V1.6_IMPLEMENTATION.md)
+- [V1.6 acceptance](docs/V1.6_ACCEPTANCE.md)
 - [V1.5 implementation](docs/V1.5_IMPLEMENTATION.md)
 - [V1.5 acceptance](docs/V1.5_ACCEPTANCE.md)
-- [V1.4 implementation](docs/V1.4_IMPLEMENTATION.md)
-- [V1.4 acceptance](docs/V1.4_ACCEPTANCE.md)
-- [V1.3.1 acceptance](docs/V1.3.1_ACCEPTANCE.md)
 
 ## Privacy
 
