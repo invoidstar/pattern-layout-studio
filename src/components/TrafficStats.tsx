@@ -17,12 +17,19 @@ export default function TrafficStats() {
 
   return (
     <span
-      className="traffic-stats traffic-stats-pv"
-      aria-label="Site page views"
-      title="本站总浏览量（Busuanzi PV）"
+      className="traffic-stats"
+      aria-label="Pattern Layout Studio traffic statistics"
+      title="当前 Pattern Layout Studio 页面独立统计（Busuanzi Page UV / PV）"
     >
-      <em>浏览量</em>
-      <b id="busuanzi_site_pv">—</b>
+      <span>
+        <b id="busuanzi_page_uv">—</b>
+        <em>访客 UV</em>
+      </span>
+      <i />
+      <span>
+        <b id="busuanzi_page_pv">—</b>
+        <em>浏览量 PV</em>
+      </span>
     </span>
   );
 }
