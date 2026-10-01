@@ -302,9 +302,12 @@ GitHub Pages deployment is handled by:
 
 The deployed site includes a lightweight **Busuanzi** counter in the footer.
 
-It displays one standalone metric:
+It uses **page-level** counters rather than domain-wide site counters, so this GitHub Pages project is not merged with other projects under `invoidstar.github.io`.
 
-- **PV — total page views / 浏览量**
+It displays:
+
+- **Page UV — unique visitors / 访客**
+- **Page PV — page views / 浏览量**
 
 The counter is loaded as a small optional client-side widget and is isolated from the image-processing pipeline.
 
@@ -336,7 +339,7 @@ Pattern Layout Studio is intentionally browser-first.
 - source files are not uploaded to the repository
 - no application server is required
 - optional OCR downloads the OCR runtime/language assets only when enabled
-- Busuanzi page-view counting is separate from image content and processing
+- Busuanzi page-level UV/PV counting is separate from image content and processing
 
 ---
 
