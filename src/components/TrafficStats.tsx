@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 
 const SCRIPT_ID = 'busuanzi-counter-script';
-const SCRIPT_SRC = 'https://cdn.busuanzi.cc/busuanzi/3.6.9/busuanzi.min.js';
+const SCRIPT_SRC =
+  'https://cdn.busuanzi.cc/busuanzi/3.6.9/busuanzi.min.js';
 
 export default function TrafficStats() {
   useEffect(() => {
@@ -15,16 +16,13 @@ export default function TrafficStats() {
   }, []);
 
   return (
-    <span className="traffic-stats" aria-label="Site traffic statistics">
-      <span>
-        <b id="busuanzi_site_uv">—</b>
-        <em>访客</em>
-      </span>
-      <i />
-      <span>
-        <b id="busuanzi_site_pv">—</b>
-        <em>访问</em>
-      </span>
+    <span
+      className="traffic-stats traffic-stats-pv"
+      aria-label="Site page views"
+      title="本站总浏览量（Busuanzi PV）"
+    >
+      <em>浏览量</em>
+      <b id="busuanzi_site_pv">—</b>
     </span>
   );
 }
