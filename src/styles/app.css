@@ -632,20 +632,10 @@ body{background:var(--studio-bg)}
 }
 
 
-/* Busuanzi: page views only */
-.traffic-stats-pv{
-  gap:6px;
-  padding:6px 10px;
-}
-.traffic-stats-pv em{
-  color:#8a93a5;
-  font-size:8px;
-  font-style:normal;
-  font-weight:700;
-}
-.traffic-stats-pv b{
-  color:#48536b;
-  font-size:10px;
+/* Busuanzi: project-page UV / PV */
+.traffic-stats{
   font-variant-numeric:tabular-nums;
+}
+.traffic-stats b{
   letter-spacing:.02em;
 }
