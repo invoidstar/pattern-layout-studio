@@ -300,12 +300,11 @@ GitHub Pages deployment is handled by:
 
 ## Traffic statistics
 
-The deployed site includes a lightweight **Busuanzi** visitor counter in the footer.
+The deployed site includes a lightweight **Busuanzi** counter in the footer.
 
-It displays:
+It displays one standalone metric:
 
-- site UV — unique visitors
-- site PV — total page views
+- **PV — total page views / 浏览量**
 
 The counter is loaded as a small optional client-side widget and is isolated from the image-processing pipeline.
 
@@ -337,7 +336,7 @@ Pattern Layout Studio is intentionally browser-first.
 - source files are not uploaded to the repository
 - no application server is required
 - optional OCR downloads the OCR runtime/language assets only when enabled
-- Busuanzi traffic counting is separate from image content and processing
+- Busuanzi page-view counting is separate from image content and processing
 
 ---
 
