@@ -2,7 +2,7 @@ import type { MorphologyStats, SmoothingMode } from '../../core/vision/morpholog
 import type { SplitStrength } from '../../core/vision/segmentation';
 import type { PackingDiagnostics } from '../../core/layout/packing';
 
-export type ToolMode = 'select' | 'brush' | 'eraser';
+export type ToolMode = 'select' | 'pan' | 'brush' | 'eraser';
 
 export interface QualityReport {
   threshold: number;
