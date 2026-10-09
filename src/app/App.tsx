@@ -68,7 +68,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V2.0 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
+  const [status, setStatus] = useState('V2.1 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
   const [dpi, setDpi] = useState(300);
   const [exportBackgroundMode, setExportBackgroundMode] =
     useState<ExportBackgroundMode>('detected');
@@ -1177,7 +1177,7 @@ export default function App() {
       </section>
 
       <footer className="v2-footer">
-        <span>Pattern Layout Studio V2.0 · 所有图像处理均在浏览器本地完成</span>
+        <span>Pattern Layout Studio V2.1 · 所有图像处理均在浏览器本地完成</span>
         <span className="v2-footer-analytics">访客统计暂未启用 · 已预留独立统计接口</span>
       </footer>
       <MobileNavigation active={mobileTab} onChange={setMobileTab} />
