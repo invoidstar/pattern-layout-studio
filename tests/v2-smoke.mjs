@@ -76,6 +76,20 @@ try {
     mobileOverflow.pageWidth <= mobileOverflow.viewportWidth + 2,
     `Mobile horizontal overflow: ${JSON.stringify(mobileOverflow)}`,
   );
+  const viewportSamples = [];
+  for (const width of [360, 390, 430, 768, 1024, 1366, 1920]) {
+    await mobile.setViewportSize({ width, height: 844 });
+    const dimensions = await mobile.evaluate(() => ({
+      page: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    }));
+    assert.ok(dimensions.page <= dimensions.viewport + 2,
+      `Horizontal overflow at ${width}px: ${JSON.stringify(dimensions)}`);
+    const navVisible = await mobile.locator('.v2-mobile-nav').isVisible();
+    assert.equal(navVisible, width <= 860, `Wrong navigation mode at ${width}px`);
+    viewportSamples.push(width);
+  }
+  await mobile.setViewportSize({ width: 390, height: 844 });
   await mobile.screenshot({ path: 'tests/screenshots/v2-mobile.png', fullPage: true });
 
   const valid = await desktop.evaluate(() => {
@@ -113,6 +127,16 @@ try {
 
   await desktop.screenshot({ path: 'tests/screenshots/v2-desktop-project.png', fullPage: true });
 
+  const partsBeforeReplace = await desktop.locator('.v2-part-item').count();
+  await desktop.locator('input[type=file]').setInputFiles({
+    name: 'replacement-a4.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(valid, 'base64'),
+  });
+  await desktop.getByRole('heading', { name: '重新导入图纸？' }).waitFor();
+  await desktop.getByRole('button', { name: '保留当前项目' }).click();
+  assert.equal(await desktop.locator('.v2-part-item').count(), partsBeforeReplace);
+
   const invalidPage = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await invalidPage.goto(BASE_URL);
   const bad = await invalidPage.evaluate(() => {
@@ -132,7 +156,7 @@ try {
   assert.deepEqual(desktopErrors, [], 'Desktop page exceptions');
   assert.deepEqual(mobileErrors, [], 'Mobile page exceptions');
   console.log('V2 browser smoke PASS: desktop, mobile, announcements, settings, export drawer, processing, zoom, selection, size gate');
-  console.log(`Mobile width: ${mobileOverflow.pageWidth}/${mobileOverflow.viewportWidth}`);
+  console.log(`Responsive widths checked: ${viewportSamples.join(', ')}; mobile width: ${mobileOverflow.pageWidth}/${mobileOverflow.viewportWidth}`);
 } finally {
   if (browser) await browser.close();
   server.kill('SIGTERM');
