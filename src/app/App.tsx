@@ -64,7 +64,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.8.1：仅接受 3500×3500 或 A4 图纸；不合规尺寸会在进入分割前过滤。');
+  const [status, setStatus] = useState('V2.0 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -364,8 +364,8 @@ export default function App() {
 
       setStatus(
         project.quality.unplaceableCount
-          ? `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}`
-          : `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
+          ? `V2.0 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}`
+          : `V2.0 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
       );
     } catch (error) {
       console.error(error);
@@ -1082,11 +1082,11 @@ export default function App() {
         </span>
         {quality && <span className="v2-metric-chip">文字 {quality.textRegions}</span>}
         {sourceReferences.length > 0 && (
-          <span className="metric-chip">{sourceReferences.length} 张原图</span>
+          <span className="v2-metric-chip">{sourceReferences.length} 张原图</span>
         )}
-        {pageCount > 0 && <span className="metric-chip">共 {pageCount} 页</span>}
+        {pageCount > 0 && <span className="v2-metric-chip">共 {pageCount} 页</span>}
         {selectedSourceRegionCount > 0 && (
-          <span className="metric-chip">来源 {selectedSourceRegionCount} 区域</span>
+          <span className="v2-metric-chip">来源 {selectedSourceRegionCount} 区域</span>
         )}
         {unplaceableCount > 0 && <span className="v2-warning-chip">{unplaceableCount} 个超大零件</span>}
       </section>
