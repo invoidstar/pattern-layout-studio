@@ -10,6 +10,20 @@ export interface Announcement {
 
 export const ANNOUNCEMENTS: Announcement[] = [
   {
+    id: 'v2.1-export-background',
+    version: 'V2.1',
+    date: '2026-10-09',
+    category: 'feature',
+    title: '导出背景颜色自由选择',
+    summary: '导出 PNG 或全部页面 ZIP 时，可以选择原图背景、纯白、自定义颜色或透明背景。',
+    changes: [
+      '导出面板新增背景颜色选项与常用配色快捷选择。',
+      '可使用颜色选择器自定义背景，或输出带 Alpha 通道的透明 PNG。',
+      '单页 PNG 与多页 ZIP 共用导出背景设置，默认保留原有自动背景。',
+      '背景选择仅影响导出结果，不更改零件颜色、编辑画布或尺寸。'
+    ]
+  },
+  {
     id: 'v2.0-workspace-redesign',
     version: 'V2.0',
     date: '2026-10-09',
