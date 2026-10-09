@@ -36,6 +36,10 @@ import {
   buildProjectFromFiles,
   NoValidSourceError,
 } from '../features/project/build-project';
+import {
+  resolveExportBackground,
+  type ExportBackgroundMode,
+} from '../features/export/background';
 import type { InvalidSourceSize } from '../features/extraction/source-validation';
 import type {
   PaintSession,
@@ -64,8 +68,11 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V2.0 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
+  const [status, setStatus] = useState('V2.1 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
   const [dpi, setDpi] = useState(300);
+  const [exportBackgroundMode, setExportBackgroundMode] =
+    useState<ExportBackgroundMode>('detected');
+  const [exportCustomColor, setExportCustomColor] = useState('#ffffff');
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
   const [quality, setQuality] = useState<QualityReport | null>(null);
@@ -97,6 +104,11 @@ export default function App() {
   const redoRef = useRef<PatternPart[][]>([]);
 
   const target = TARGETS[targetKey];
+  const exportBackgroundCss = resolveExportBackground(
+    exportBackgroundMode,
+    backgroundCss,
+    exportCustomColor,
+  );
   const selectedPart = parts.find((part) => part.id === selectedIds[0]) ?? null;
   const pageCount = useMemo(() => {
     const placed = parts.filter((part) => !part.overflow && (part.pageIndex ?? 0) >= 0);
@@ -968,7 +980,7 @@ export default function App() {
     setBusy(true);
     setStatus(`正在生成第 ${currentPageIndex + 1} 页 PNG…`);
     try {
-      const blob = await renderLayoutPage(visible, target, backgroundCss, dpi);
+      const blob = await renderLayoutPage(visible, target, exportBackgroundCss, dpi);
       const digits = Math.max(2, String(Math.max(1, pageCount)).length);
       const pageNumber = String(currentPageIndex + 1).padStart(digits, '0');
       downloadBlob(
@@ -1004,7 +1016,7 @@ export default function App() {
       const blob = await buildPagesZip(
         pages,
         target,
-        backgroundCss,
+        exportBackgroundCss,
         dpi,
       );
       downloadBlob(
@@ -1066,6 +1078,11 @@ export default function App() {
         hasParts={Boolean(parts.length)}
         dpi={dpi}
         setDpi={setDpi}
+        detectedBackgroundCss={backgroundCss}
+        exportBackgroundMode={exportBackgroundMode}
+        setExportBackgroundMode={setExportBackgroundMode}
+        exportCustomColor={exportCustomColor}
+        setExportCustomColor={setExportCustomColor}
         canExportCurrent={Boolean(currentPageParts.length)}
         canExportAll={Boolean(pageCount)}
         onExportCurrent={() => void exportCurrent()}
@@ -1160,7 +1177,7 @@ export default function App() {
       </section>
 
       <footer className="v2-footer">
-        <span>Pattern Layout Studio V2.0 · 所有图像处理均在浏览器本地完成</span>
+        <span>Pattern Layout Studio V2.1 · 所有图像处理均在浏览器本地完成</span>
         <span className="v2-footer-analytics">访客统计暂未启用 · 已预留独立统计接口</span>
       </footer>
       <MobileNavigation active={mobileTab} onChange={setMobileTab} />

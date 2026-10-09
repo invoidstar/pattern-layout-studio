@@ -6,7 +6,7 @@
 
 让一张或多张图纸，从自动拆件到打印导出，都在浏览器工作台中完成。
 
-[![Version](https://img.shields.io/badge/Version-2.0-5567c7?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
+[![Version](https://img.shields.io/badge/Version-2.1-5567c7?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
 [![React](https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Checked-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-App-646cff?style=flat-square&logo=vite)](https://vite.dev/)
@@ -73,14 +73,14 @@ V2.0 重点提升操作体验，保留现有的 Vision 和 Packing 处理主链�
 | 📄 自动分页 | MaxRects + 全局整页合并 + 后页零件回填 |
 | ↔️ 跨页调整 | 零件可从 Page 2 移到 Page 1，也可新建页面 |
 | 🖌️ 手动修正 | 连续恢复画笔、橡皮擦、合并、拆分、锁定、撤销和重做 |
-| 📦 导出 | 当前页 PNG，或所有页面打包 ZIP；附带 DPI 元数据 |
+| 📦 导出 | 当前页 PNG 或全部页面 ZIP；支持背景颜色/透明 Alpha，并保留 DPI 元数据 |
 
 ## 如何使用
 
 1. **添加图纸**：在工作台点击「添加图纸」，可一次选多张 PNG、JPEG 或 WebP。尺寸不符合要求的图片会在拆件前被过滤并提示。
 2. **检查拆件**：自动处理完成后，点击任意零件，在「原图」中查看对应来源轮廓；需要修边时切换画笔或橡皮擦。
 3. **优化排版**：查看 Page 利用率，使用全局自动优化，或者手动把零件移动到其它 Page。
-4. **导出页面**：点击「导出」，选择当前页 PNG 或全部页面 ZIP，按需设置 DPI。
+4. **导出页面**：点击「导出」，选择原图背景、纯白、自定义颜色或透明背景，再设置 DPI，导出当前页 PNG 或全部页面 ZIP。背景设置只影响导出，不会更改零件颜色及编辑画布。
 
 当前目标页面规格为：
 
@@ -148,7 +148,8 @@ GitHub Pages 使用 `.github/workflows/pages.yml` 自动发布 `main` 分支。
 
 | 版本 | 主要内容 |
 | --- | --- |
-| **V2.0** | 工作台与移动端重构、画布缩放平移、公告、统计预留接口、CSS 清理 |
+| **V2.1** | 导出背景可选择原图背景、白色、自定义颜色及透明 Alpha |
+| V2.0 | 工作台与移动端重构、画布缩放平移、公告、统计预留接口、CSS 清理 |
 | V1.8.1 | 输入图纸尺寸预检 |
 | V1.8 | 工程模块化、README 展示与基础流量统计 |
 | V1.7 | 多图项目统一拆件和排版 |

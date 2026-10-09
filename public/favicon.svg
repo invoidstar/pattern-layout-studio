@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pattern Layout Studio">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#768BE2"/>
+      <stop offset="1" stop-color="#4459BA"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#brand)"/>
+  <path d="M20 10h21l10 10v28H20z" fill="#DFE7FF" opacity=".48"/>
+  <path d="M12 19h25l11 11v25H12z" fill="#fff"/>
+  <path d="M37 19v11h11" fill="#D4DFFE"/>
+  <rect x="19" y="36" width="11" height="13" rx="2" fill="#536BC7"/>
+  <rect x="33" y="36" width="9" height="8" rx="2" fill="#A3B7F1"/>
+</svg>
