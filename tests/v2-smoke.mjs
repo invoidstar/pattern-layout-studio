@@ -5,9 +5,11 @@ import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const BASE_URL = 'http://127.0.0.1:4173/pattern-layout-studio/';
+// Launch Vite directly so SIGTERM shuts down the process itself, not only
+// the npm wrapper (which could leave a child Vite server keeping pipes open).
 const server = spawn(
-  'npm',
-  ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '4173', '--strictPort'],
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '4173', '--strictPort'],
   { stdio: ['ignore', 'pipe', 'pipe'] },
 );
 let serverOutput = '';
@@ -134,4 +136,6 @@ try {
 } finally {
   if (browser) await browser.close();
   server.kill('SIGTERM');
+  server.stdout.destroy();
+  server.stderr.destroy();
 }
