@@ -45,20 +45,22 @@ export default function CommandBar({
 }: CommandBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null);
 
   useEffect(() => {
-    if (!settingsOpen && !exportOpen) return;
+    if (!settingsOpen && !exportOpen && !pendingFiles) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setSettingsOpen(false);
         setExportOpen(false);
+        setPendingFiles(null);
       }
     };
     document.addEventListener('keydown', escape);
     return () => document.removeEventListener('keydown', escape);
-  }, [settingsOpen, exportOpen]);
+  }, [settingsOpen, exportOpen, pendingFiles]);
 
-  const modalOpen = settingsOpen || exportOpen;
+  const modalOpen = settingsOpen || exportOpen || !!pendingFiles;
   return (
     <>
       <section className="v2-projectbar" aria-label="项目与操作">
@@ -79,7 +81,7 @@ export default function CommandBar({
         <div className="v2-project-actions">
           <label className={`v2-button upload-button ${busy ? 'disabled' : ''}`}>
             <Icon name="plus" size={17}/>
-            <span>添加图纸</span>
+            <span>导入图纸</span>
             <input
               aria-label="选择要处理的图纸，可多选"
               type="file"
@@ -88,7 +90,10 @@ export default function CommandBar({
               disabled={busy}
               onChange={(event) => {
                 const files = Array.from(event.target.files ?? []);
-                if (files.length) onFiles(files);
+                if (files.length) {
+                  if (hasParts) setPendingFiles(files);
+                  else onFiles(files);
+                }
                 event.currentTarget.value = '';
               }}
             />
@@ -120,6 +125,7 @@ export default function CommandBar({
           if (event.target === event.currentTarget) {
             setSettingsOpen(false);
             setExportOpen(false);
+            setPendingFiles(null);
           }
         }}>
           {settingsOpen ? (
@@ -162,7 +168,7 @@ export default function CommandBar({
                 <button className="v2-button primary" onClick={() => setSettingsOpen(false)}>完成</button>
               </div>
             </section>
-          ) : (
+          ) : exportOpen ? (
             <section className="v2-modal-card v2-export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-dialog-title">
               <div className="v2-modal-header">
                 <div><span className="v2-eyebrow">OUTPUT</span><h2 id="export-dialog-title">导出图纸</h2></div>
@@ -187,6 +193,24 @@ export default function CommandBar({
                   <span><strong>导出全部页面 ZIP</strong><small>每个 Page 对应一张 PNG</small></span>
                   <Icon name="chevron-right" size={18}/>
                 </button>
+              </div>
+            </section>
+          ) : (
+            <section className="v2-modal-card" role="dialog" aria-modal="true" aria-labelledby="replace-project-title">
+              <div className="v2-modal-header">
+                <div><span className="v2-eyebrow">NEW PROJECT</span><h2 id="replace-project-title">重新导入图纸？</h2></div>
+                <button className="v2-icon-button" onClick={() => setPendingFiles(null)} aria-label="取消导入"><Icon name="x"/></button>
+              </div>
+              <p className="v2-settings-note">
+                当前已有 {partCount} 个零件。重新导入会替换当前项目，尚未导出的编辑内容会丢失。
+                即将导入 {pendingFiles?.length ?? 0} 张新图纸。
+              </p>
+              <div className="v2-modal-footer">
+                <button className="v2-button soft" onClick={() => setPendingFiles(null)}>保留当前项目</button>
+                <button className="v2-button primary" onClick={() => {
+                  if (pendingFiles?.length) onFiles(pendingFiles);
+                  setPendingFiles(null);
+                }}>替换并导入</button>
               </div>
             </section>
           )}
