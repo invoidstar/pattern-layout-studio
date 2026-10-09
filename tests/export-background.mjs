@@ -5,43 +5,60 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright';
 
 const BASE = 'http://127.0.0.1:4174/pattern-layout-studio/';
+const PREVIEW_BASE = 'http://127.0.0.1:4175/pattern-layout-studio/';
 const server = spawn(
   process.execPath,
   ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', '4174', '--strictPort'],
   { stdio: ['ignore', 'pipe', 'pipe'] },
 );
+const preview = spawn(
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '4175', '--strictPort'],
+  { stdio: ['ignore', 'pipe', 'pipe'] },
+);
 let log = '';
+let previewLog = '';
 server.stdout.on('data', chunk => { log += String(chunk); });
 server.stderr.on('data', chunk => { log += String(chunk); });
+preview.stdout.on('data', chunk => { previewLog += String(chunk); });
+preview.stderr.on('data', chunk => { previewLog += String(chunk); });
 
-async function waitForReady() {
+async function waitForReady(url, serverProcess, getLog) {
   for (let i = 0; i < 65; i++) {
-    if (server.exitCode !== null) throw new Error(`Vite stopped: ${log}`);
+    if (serverProcess.exitCode !== null) throw new Error(`Vite stopped: ${getLog()}`);
     try {
-      if ((await fetch(BASE)).ok) return;
+      if ((await fetch(url)).ok) return;
     } catch {}
     await sleep(300);
   }
-  throw new Error(`Vite timed out: ${log}`);
+  throw new Error(`Vite timed out: ${getLog()}`);
 }
 
 let browser;
 try {
-  await waitForReady();
+  await Promise.all([
+    waitForReady(BASE, server, () => log),
+    waitForReady(PREVIEW_BASE, preview, () => previewLog),
+  ]);
   browser = await chromium.launch({ headless: true });
+
+  // Verify the built artifact's real GitHub Pages subpath, not Vite dev fallback.
+  const productionPage = await browser.newPage();
+  const productionResponse = await productionPage.goto(PREVIEW_BASE);
+  assert.equal(productionResponse?.status(), 200);
+  const faviconHref = await productionPage.locator('link[rel="icon"]').getAttribute('href');
+  assert.ok(faviconHref?.includes('/pattern-layout-studio/favicon.svg'), 'Missing project-base favicon URL');
+  const faviconResponse = await productionPage.request.get(new URL(faviconHref, PREVIEW_BASE).href);
+  assert.equal(faviconResponse.status(), 200, 'Production favicon failed to load');
+  assert.ok((await faviconResponse.text()).includes('<svg'), 'Production favicon is not an SVG');
+  await productionPage.close();
+
   const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
 
   const response = await page.goto(BASE);
   assert.equal(response?.status(), 200);
-
-  const icon = page.locator('link[rel="icon"]');
-  const href = await icon.getAttribute('href');
-  assert.ok(href?.includes('/pattern-layout-studio/favicon.svg'), 'Missing project-base favicon URL');
-  const faviconResponse = await page.request.get(new URL(href, BASE).href);
-  assert.equal(faviconResponse.status(), 200, 'Favicon failed to load');
-  assert.match(await faviconResponse.text(), /<svg[\s>]/, 'Favicon is not an SVG');
 
   await page.getByRole('button', { name: '导出', exact: true }).click();
   await page.locator('.v2-export-background').waitFor();
@@ -145,4 +162,7 @@ try {
   server.kill('SIGTERM');
   server.stdout.destroy();
   server.stderr.destroy();
+  preview.kill('SIGTERM');
+  preview.stdout.destroy();
+  preview.stderr.destroy();
 }
