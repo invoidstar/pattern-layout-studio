@@ -1,0 +1,109 @@
+/* Tablet adjustments */
+@media(max-width:1120px){
+  .v2-project-metrics{display:none}
+  .v2-mode-tools button span{display:none}
+  .v2-mode-tools button{min-width:37px}
+  .v2-project-name small{max-width:200px}
+}
+@media(max-width:860px){
+  html,body{overflow-x:hidden}
+  .v2-shell{width:100%;margin:0;min-height:100svh;padding:0 12px 92px}
+  .v2-topbar{position:sticky;top:0;z-index:90;margin:0 -12px;min-height:60px;padding:10px 15px;border-radius:0;border:0;border-bottom:1px solid var(--line)}
+  .v2-brand-mark{width:37px;height:37px;flex-basis:37px;border-radius:11px}
+  .v2-brand-copy strong{font-size:14px}
+  .v2-brand-copy small{font-size:10px}
+  .v2-topnav{display:none}
+  .v2-announcement-compact{display:grid;place-items:center;position:relative;width:39px;height:39px;background:#f4f6fb;border:1px solid var(--line);border-radius:11px;color:#576580}
+  .v2-announcement-dot{position:absolute;width:6px;height:6px;border-radius:50%;background:#8194e9;right:8px;top:6px}
+  .v2-announcement-banner{margin-top:9px;padding:9px 11px;gap:8px}
+  .v2-announcement-message{display:grid;gap:2px;font-size:10px}
+  .v2-announcement-message strong{white-space:normal;font-size:11px}
+  .v2-announcement-message span{display:none}
+  .v2-announcement-read{font-size:10px;min-height:33px}
+  .v2-workflow-title{padding:18px 4px 10px}
+  .v2-workflow-title h1{font-size:22px;margin:5px 0 4px}
+  .v2-workflow-title p{font-size:11px}
+  .v2-projectbar{min-height:68px;gap:9px;padding:11px 12px;flex-wrap:wrap;border-radius:13px}
+  .v2-project-info{flex:1}
+  .v2-project-glyph{display:none}
+  .v2-project-name strong{font-size:12px}
+  .v2-project-name small{max-width:190px;font-size:10px}
+  .v2-project-actions{gap:5px}
+  .v2-project-actions .v2-button{min-height:38px;padding:8px 10px;font-size:11px}
+  .v2-project-actions .v2-button span{display:none}
+  .v2-project-secondary{padding:8px 1px 9px;min-height:38px}
+  .v2-output-tabs{gap:3px;overflow:auto;max-width:100%;scrollbar-width:none}
+  .v2-output-tabs>span{font-size:10px;margin-right:4px}
+  .v2-output-tabs button{padding:7px 9px;font-size:10px;white-space:nowrap}
+  .v2-import-hint{display:none}
+  .v2-statusbar{padding:8px 11px;margin-bottom:9px;border-radius:10px;font-size:10px}
+  .v2-statusbar>span:nth-child(2){white-space:normal;line-height:1.5;max-height:45px;overflow:hidden}
+  .v2-statusbar .v2-background-chip,.v2-statusbar .v2-metric-chip,.v2-statusbar .v2-warning-chip{display:none}
+  .v2-workspace{display:block;width:100%;min-width:0}
+  .v2-source-slot,.v2-canvas-slot,.v2-inspector-slot{display:none}
+  .v2-workspace.mobile-active-source .v2-source-slot,
+  .v2-workspace.mobile-active-canvas .v2-canvas-slot,
+  .v2-workspace.mobile-active-parts .v2-inspector-slot{display:block}
+  .v2-source-panel,.v2-canvas-panel,.v2-inspector-panel{border-radius:13px;min-height:calc(100svh - 315px);box-shadow:none}
+  .v2-panel-header{min-height:66px;padding:12px 14px}
+  .v2-panel-header h2{font-size:14px}
+  .v2-panel-header small{font-size:9px}
+  .v2-canvas-toolbar{padding:7px 8px;gap:4px}
+  .v2-mode-tools{gap:4px}
+  .v2-mode-tools button{min-width:40px;min-height:40px;padding:8px}
+  .v2-toolbar-separator{margin-left:auto;height:22px}
+  .v2-quick-actions .v2-icon-button{width:35px;height:36px}
+  .v2-actions-menu summary{min-height:40px;padding:7px 9px}
+  .v2-actions-menu summary span{display:none}
+  .v2-actions-popover{width:205px;right:-6px}
+  .v2-page-strip{padding:8px;gap:5px}
+  .v2-page-chip{padding:7px 10px;min-height:36px}
+  .v2-canvas-stage{min-height:clamp(360px,57svh,710px);padding:10px}
+  .v2-editor-canvas{width:100%!important;height:auto!important;max-height:70svh}
+  .v2-zoom-tools{right:9px;bottom:10px;gap:1px}
+  .v2-zoom-tools button{width:35px;height:35px}
+  .v2-canvas-hint{padding:11px;font-size:10px}
+  .v2-inspector-scroll{max-height:none;overflow:visible}
+  .v2-part-list{max-height:45svh}
+  .v2-part-item{min-height:62px}
+  .v2-part-item img{width:46px;height:46px;flex-basis:46px}
+  .v2-source-tab{width:63px;height:61px;flex-basis:63px}
+  .v2-source-stage{padding:10px}
+  .v2-source-image{max-width:min(100%,550px)}
+  .v2-source-meta{padding:12px}
+  .v2-source-guide{padding:13px}
+  .v2-mobile-nav{
+    position:fixed;left:0;bottom:0;z-index:100;width:100%;
+    display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;
+    padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+    background:rgba(255,255,255,.97);border-top:1px solid var(--line);box-shadow:0 -8px 25px rgba(36,50,80,.07);
+    backdrop-filter:blur(16px)
+  }
+  .v2-mobile-tab{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+    border:0;border-radius:11px;padding:7px 0;background:none;color:#8794a8;font-size:10px;font-weight:750;min-height:47px
+  }
+  .v2-mobile-tab.active{background:var(--accent-soft);color:var(--accent)}
+  .v2-footer{align-items:flex-start;flex-direction:column;gap:5px;font-size:9px}
+  .v2-modal-backdrop{align-items:flex-end;padding:0}
+  .v2-modal-card{width:100%;max-height:88svh;border-radius:20px 20px 0 0;padding:19px 17px calc(21px + env(safe-area-inset-bottom));border:0}
+  .v2-setting-field{min-height:66px}
+  .v2-modal-header h2{font-size:20px}
+  .v2-announcement-content{grid-template-columns:1fr;gap:12px}
+  .v2-release-list{display:flex;flex-direction:row;overflow:auto;scrollbar-width:thin;padding:3px}
+  .v2-release-row{min-width:85px;flex:0 0 auto;padding:9px}
+  .v2-release-detail h3{font-size:18px}
+  .v2-release-detail ul{font-size:11px;gap:7px}
+  .v2-actions-popover button{min-height:42px}
+  .input-gate-backdrop{align-items:flex-end;padding:0}
+  .input-gate-dialog{width:100%;max-height:88svh;border-radius:20px 20px 0 0;padding:20px 17px calc(20px + env(safe-area-inset-bottom))}
+}
+@media(max-width:380px){
+  .v2-project-name small{max-width:145px}
+  .v2-brand-copy strong{font-size:13px}
+  .v2-brand-mark{width:34px;height:34px;flex-basis:34px}
+  .v2-mode-tools button{min-width:36px}
+  .v2-output-tabs button{padding:7px;font-size:9px}
+  .v2-canvas-head-right .v2-utilization{font-size:9px}
+  .v2-workflow-title h1{font-size:20px}
+}
