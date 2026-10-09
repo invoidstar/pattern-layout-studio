@@ -22,8 +22,12 @@ export async function renderLayoutPage(
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Export canvas unavailable');
 
-  context.fillStyle = backgroundCss;
-  context.fillRect(0, 0, target.width, target.height);
+  // An untouched canvas is fully transparent. Keep it that way when
+  // transparent export is selected; source part PNG alpha stays unchanged.
+  if (backgroundCss !== 'transparent') {
+    context.fillStyle = backgroundCss;
+    context.fillRect(0, 0, target.width, target.height);
+  }
 
   for (const part of parts) {
     if (!part.visible || part.overflow) continue;
