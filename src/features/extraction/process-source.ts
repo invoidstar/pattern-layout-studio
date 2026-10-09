@@ -122,7 +122,7 @@ export async function processSourceFile(
   );
 
   const rawMask = buildForegroundMask(imageData, background);
-  let workingMask = rawMask.slice();
+  let workingMask: Uint8Array = rawMask.slice();
   let geometryRegions: TextRegion[] = [];
   let ocrRegions: TextRegion[] = [];
 
