@@ -31,7 +31,7 @@ export default function SourcePanel({
     return currentPageParts.flatMap(part=>
       sourceRegionsFor(part)
         .filter(region=>region.sourceId===activeSource.id)
-        .flatMap((region, regionIndex)=>{
+        .flatMap<SourceTraceItem>((region, regionIndex)=>{
           if(region.contours?.length){
             return region.contours.map((contour,contourIndex)=>({
               part, contour, box:region.box, index:regionIndex*1000+contourIndex,
