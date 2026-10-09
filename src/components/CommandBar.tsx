@@ -4,6 +4,11 @@ import type { SmoothingMode } from '../core/vision/morphology';
 import type { SplitStrength } from '../core/vision/segmentation';
 import type { TextFilterStrength } from '../core/vision/text-filter';
 import { ALLOWED_SOURCE_SIZE_LABEL } from '../features/extraction/source-validation';
+import {
+  EXPORT_BACKGROUND_PRESETS,
+  resolveExportBackground,
+  type ExportBackgroundMode,
+} from '../features/export/background';
 import Icon from './ui/Icon';
 
 interface CommandBarProps {
@@ -29,6 +34,11 @@ interface CommandBarProps {
   hasParts: boolean;
   dpi: number;
   setDpi: Dispatch<SetStateAction<number>>;
+  detectedBackgroundCss: string;
+  exportBackgroundMode: ExportBackgroundMode;
+  setExportBackgroundMode: Dispatch<SetStateAction<ExportBackgroundMode>>;
+  exportCustomColor: string;
+  setExportCustomColor: Dispatch<SetStateAction<string>>;
   canExportCurrent: boolean;
   canExportAll: boolean;
   onExportCurrent: () => void;
@@ -40,8 +50,11 @@ export default function CommandBar({
   textExclude, setTextExclude, textStrength, setTextStrength,
   ocrEnhanced, setOcrEnhanced, smoothing, setSmoothing,
   splitStrength, setSplitStrength, targetKey, onTargetChange,
-  onRelayout, hasParts, dpi, setDpi, canExportCurrent,
-  canExportAll, onExportCurrent, onExportAll,
+  onRelayout, hasParts, dpi, setDpi,
+  detectedBackgroundCss,
+  exportBackgroundMode, setExportBackgroundMode,
+  exportCustomColor, setExportCustomColor,
+  canExportCurrent, canExportAll, onExportCurrent, onExportAll,
 }: CommandBarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -178,6 +191,76 @@ export default function CommandBar({
                 <Icon name="archive" size={24}/>
                 <span>输出 {pageCount} 页 · {targetKey === 'a4' ? '2970 × 2100' : '3500 × 3500'} · 零件原尺寸</span>
               </div>
+              <fieldset className="v2-export-background">
+                <legend>导出背景</legend>
+                <p>仅改变输出图片的背景，不会修改原图、零件颜色或排版。</p>
+                <div className="v2-export-bg-options">
+                  {([
+                    { value: 'detected', label: '原图背景', note: '默认' },
+                    { value: 'white', label: '纯白背景', note: '#FFFFFF' },
+                    { value: 'custom', label: '自定义颜色', note: exportCustomColor.toUpperCase() },
+                    { value: 'transparent', label: '透明背景', note: 'Alpha 通道' },
+                  ] as const).map((option) => {
+                    const selected = exportBackgroundMode === option.value;
+                    const swatch = resolveExportBackground(
+                      option.value,
+                      detectedBackgroundCss,
+                      exportCustomColor,
+                    );
+                    return (
+                      <label
+                        key={option.value}
+                        className={`v2-export-bg-option ${selected ? 'active' : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name="export-background"
+                          value={option.value}
+                          checked={selected}
+                          onChange={() => setExportBackgroundMode(option.value)}
+                        />
+                        <span
+                          className={`v2-export-bg-swatch ${swatch === 'transparent' ? 'is-transparent' : ''}`}
+                          style={swatch !== 'transparent' ? { backgroundColor: swatch } : undefined}
+                          aria-hidden="true"
+                        />
+                        <span className="v2-export-bg-label">
+                          <strong>{option.label}</strong>
+                          <small>{option.note}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {exportBackgroundMode === 'custom' && (
+                  <div className="v2-export-custom">
+                    <div className="v2-export-custom-picker">
+                      <label htmlFor="export-custom-color">背景颜色</label>
+                      <input
+                        id="export-custom-color"
+                        type="color"
+                        value={exportCustomColor}
+                        onChange={(event) => setExportCustomColor(event.target.value)}
+                        aria-label="自定义导出背景颜色"
+                      />
+                      <code>{exportCustomColor.toUpperCase()}</code>
+                    </div>
+                    <div className="v2-export-color-presets" aria-label="快速选择背景颜色">
+                      {EXPORT_BACKGROUND_PRESETS.map((preset) => (
+                        <button
+                          key={preset.color}
+                          type="button"
+                          title={`${preset.label} ${preset.color}`}
+                          aria-label={`使用${preset.label}背景`}
+                          className={exportCustomColor === preset.color ? 'active' : ''}
+                          style={{ backgroundColor: preset.color }}
+                          onClick={() => setExportCustomColor(preset.color)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </fieldset>
               <label className="v2-setting-field v2-export-dpi">
                 <span><strong>输出 DPI</strong><small>写入 PNG pHYs 元数据</small></span>
                 <input type="number" min="72" max="1200" value={dpi} onChange={event=>setDpi(Math.min(1200,Math.max(72,Number(event.target.value)||300)))}/>
