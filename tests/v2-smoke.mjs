@@ -97,6 +97,7 @@ try {
   });
   await desktop.waitForFunction(
     () => document.querySelector('.v2-statusbar')?.textContent?.includes('完成：'),
+    null,
     { timeout: 180000 },
   );
   assert.ok((await desktop.locator('.v2-part-item').count()) >= 1, 'No extracted parts');
