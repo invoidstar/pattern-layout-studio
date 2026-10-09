@@ -16,3 +16,13 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+      - run: npm install --no-save playwright
+      - run: npx playwright install chromium
+      - run: node tests/v2-smoke.mjs
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-workspace-screenshots
+          path: tests/screenshots/
+          if-no-files-found: ignore
+          retention-days: 7
