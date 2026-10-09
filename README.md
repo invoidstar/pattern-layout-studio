@@ -12,7 +12,7 @@
 [![Vite](https://img.shields.io/badge/Vite-App-646cff?style=flat-square&logo=vite)](https://vite.dev/)
 [![Pages](https://img.shields.io/badge/Deploy-GitHub%20Pages-232a36?style=flat-square&logo=github)](https://invoidstar.github.io/pattern-layout-studio/)
 
-**[在线体验 →](https://invoidstar.github.io/pattern-layout-studio/)** · [功能介绍](#功能亮点) · [本地运行](#快速开始) · [项目架构](docs/ARCHITECTURE.md)
+**[在线体验 →](https://invoidstar.github.io/pattern-layout-studio/)** · [功能介绍](#功能亮点) · [部署方式](#部署方式) · [项目架构](docs/ARCHITECTURE.md)
 
 </div>
 
@@ -48,7 +48,6 @@ V2.0 重点提升操作体验，保留现有的 Vision 和 Packing 处理主链�
 | **处理设置** | OCR、文字过滤、边缘平滑、拆分力度集中在设置抽屉中 |
 | **更新公告** | 最新公告提示、历史版本列表、已读状态记录，用户可随时重新打开 |
 | **样式整理** | 统一设计变量和移动端规则，删除历史 v1.x CSS 叠加覆盖 |
-| **流量统计** | 不再使用不蒜子；Cloudflare Workers + D1 预留接口但 **暂未启用** |
 
 ### 桌面端
 
@@ -115,33 +114,22 @@ src/
 
 [查看完整架构说明](docs/ARCHITECTURE.md)
 
-## 快速开始
+## 部署方式
 
-**要求**：Node.js 20+、npm。
+项目仅通过 **GitHub Pages** 对外发布：
 
-```bash
-git clone https://github.com/invoidstar/pattern-layout-studio.git
-cd pattern-layout-studio
-npm install
-npm run dev
-```
+- **在线地址**：[https://invoidstar.github.io/pattern-layout-studio/](https://invoidstar.github.io/pattern-layout-studio/)
+- **代码仓库**：[invoidstar/pattern-layout-studio](https://github.com/invoidstar/pattern-layout-studio)
+- **自动发布**：更新合并至 `main` 后，由 [GitHub Actions · Deploy Pages](https://github.com/invoidstar/pattern-layout-studio/actions/workflows/pages.yml) 完成类型检查、生产构建和 Pages 部署。
 
-质量检查与生产构建：
-
-```bash
-npm run typecheck
-npm run build
-npm run preview
-```
-
-GitHub Pages 使用 `.github/workflows/pages.yml` 自动发布 `main` 分支。
+不需要额外的托管平台、域名或服务器。
 
 ## 数据与隐私
 
 - 上传图纸在浏览器本地处理，不需要将原始图片上传到应用服务器。
 - OCR 增强在启用时按需加载 OCR 运行时/语言模型。
-- **当前不会收集 PV 或 UV**：不蒜子脚本已移除；分析接口保留在 `src/services/analytics/`，但禁用状态下不会发送访问记录请求。
-- Cloudflare Workers + D1 是未来可选扩展，尚未部署，不显示模拟统计数据。
+- **当前未启用流量统计**：`src/services/analytics/` 仅保留未来扩展接口，默认不会发送访问记录请求；不会显示模拟 UV/PV。
+- 统计服务尚未部署，网站运行与图纸处理均不依赖统计接口。
 - 刷新页面前请导出所需结果；当前版本不承诺云端项目持久保存。
 
 ## 版本记录
@@ -151,7 +139,7 @@ GitHub Pages 使用 `.github/workflows/pages.yml` 自动发布 `main` 分支。
 | **V2.1** | 导出背景可选择原图背景、白色、自定义颜色及透明 Alpha |
 | V2.0 | 工作台与移动端重构、画布缩放平移、公告、统计预留接口、CSS 清理 |
 | V1.8.1 | 输入图纸尺寸预检 |
-| V1.8 | 工程模块化、README 展示与基础流量统计 |
+| V1.8 | 工程模块化与项目展示文档整理 |
 | V1.7 | 多图项目统一拆件和排版 |
 | V1.6 | 跨页移动、全局页面压缩 |
 | V1.5 | 精确 Mask、颜色保留、画笔/拆分修复 |
