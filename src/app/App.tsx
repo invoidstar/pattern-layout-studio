@@ -43,7 +43,10 @@ import type {
   SourceReference,
   ToolMode,
 } from '../features/project/model';
-import TrafficStats from '../components/TrafficStats';
+import AppHeader from '../components/AppHeader';
+import AnnouncementCenter from '../components/AnnouncementCenter';
+import MobileNavigation from '../components/MobileNavigation';
+import type { MobileTab } from '../components/MobileNavigation';
 import SourcePanel from '../components/SourcePanel';
 import CommandBar from '../components/CommandBar';
 import CanvasPanel from '../components/CanvasPanel';
@@ -61,7 +64,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [backgroundCss, setBackgroundCss] = useState('#aaaaaa');
   const [sourceInfo, setSourceInfo] = useState('尚未上传图片');
-  const [status, setStatus] = useState('V1.8.1：仅接受 3500×3500 或 A4 图纸；不合规尺寸会在进入分割前过滤。');
+  const [status, setStatus] = useState('V2.0 工作台已就绪：可导入一张或多张图纸进行拆件与统一排版。');
   const [dpi, setDpi] = useState(300);
   const [busy, setBusy] = useState(false);
   const [renderTick, setRenderTick] = useState(0);
@@ -79,6 +82,8 @@ export default function App() {
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [packingGap, setPackingGap] = useState(DEFAULT_PACKING_GAP);
   const [moveTargetPage, setMoveTargetPage] = useState(0);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('canvas');
+  const [announcementRequest, setAnnouncementRequest] = useState(0);
   const [inputSizeNotice, setInputSizeNotice] = useState<{
     items: InvalidSourceSize[];
     blocked: boolean;
@@ -359,8 +364,8 @@ export default function App() {
 
       setStatus(
         project.quality.unplaceableCount
-          ? `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}`
-          : `V1.8.1 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
+          ? `V2.0 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一排成 ${project.quality.pageCount} 页；${project.quality.unplaceableCount} 个零件尺寸超过目标画布。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}`
+          : `V2.0 完成：${project.sources.length} 张有效图纸、${project.parts.length} 个零件已统一优化为 ${project.quality.pageCount} 页。${project.invalidSources.length ? ` 已过滤 ${project.invalidSources.length} 张尺寸不合规图纸。` : ''}${project.failedFiles.length ? ` 另有 ${project.failedFiles.length} 张图片处理失败。` : ''}`,
       );
     } catch (error) {
       console.error(error);
@@ -620,7 +625,7 @@ export default function App() {
     const point = pointerPosition(event);
     const hit = hitPart(point);
 
-    if (tool !== 'select') {
+    if (tool === 'brush' || tool === 'eraser') {
       const editTarget =
         (selectedPart && !selectedPart.locked && !selectedPart.overflow ? selectedPart : hit);
       if (!editTarget || editTarget.locked) return;
@@ -1020,7 +1025,9 @@ export default function App() {
   }
 
   return (
-    <main className="app-shell v14-shell v16-shell">
+    <main className="app-shell v2-shell">
+      <AppHeader onAnnouncements={() => setAnnouncementRequest((value)=>value+1)} />
+      <AnnouncementCenter openRequest={announcementRequest} />
       {inputSizeNotice && (
         <InputSizeNotice
           items={inputSizeNotice.items}
@@ -1028,22 +1035,21 @@ export default function App() {
           onClose={() => setInputSizeNotice(null)}
         />
       )}
-      <section className="hero">
+      <div className="v2-workflow-title">
         <div>
-          <span className="eyebrow">PATTERN LAYOUT STUDIO · V1.8.1</span>
-          <h1>Pattern Layout Studio</h1>
-          <p>
-            多图拆件、精确来源追踪、全局分页优化与人工修正整合在一个浏览器工作台中；
-            V1.8 同步完成模块化重构，让图像算法、项目流程、布局、导出与 UI 各自保持清晰边界。
-          </p>
+          <span className="v2-eyebrow">DESIGN · EXTRACT · LAYOUT</span>
+          <h1>从图纸到排版，一站完成。</h1>
+          <p>导入图纸、修正零件、智能分页，最后导出可打印的图纸。</p>
         </div>
-        <div className="hero-badge">Modular</div>
-      </section>
+      </div>
 
       <CommandBar
         busy={busy}
         sourceInfo={sourceInfo}
-        onFiles={(files) => void processFiles(files)}
+        sourceCount={sourceReferences.length}
+        partCount={parts.length}
+        pageCount={pageCount}
+        onFiles={(files) => { setMobileTab('canvas'); void processFiles(files); }}
         textExclude={textExclude}
         setTextExclude={setTextExclude}
         textStrength={textStrength}
@@ -1055,7 +1061,8 @@ export default function App() {
         splitStrength={splitStrength}
         setSplitStrength={setSplitStrength}
         targetKey={targetKey}
-        onTargetChange={relayout}
+        onTargetChange={(next) => { if(parts.length) relayout(next); else setTargetKey(next); }}
+        onRelayout={() => relayout()}
         hasParts={Boolean(parts.length)}
         dpi={dpi}
         setDpi={setDpi}
@@ -1065,35 +1072,38 @@ export default function App() {
         onExportAll={() => void exportAllPages()}
       />
 
-      <section className="status-row">
-        <div className="status-dot" />
+      <section className="v2-statusbar" aria-live="polite">
+        <span className="v2-status-dot" />
         <span>{status}</span>
-        <span className="spacer" />
-        <span className="background-chip">
+        <span className="v2-status-spacer" />
+        <span className="v2-background-chip">
           <i style={{ background: backgroundCss }} />
           背景
         </span>
-        {quality && <span className="metric-chip">文字 {quality.textRegions}</span>}
+        {quality && <span className="v2-metric-chip">文字 {quality.textRegions}</span>}
         {sourceReferences.length > 0 && (
-          <span className="metric-chip">{sourceReferences.length} 张原图</span>
+          <span className="v2-metric-chip">{sourceReferences.length} 张原图</span>
         )}
-        {pageCount > 0 && <span className="metric-chip">共 {pageCount} 页</span>}
+        {pageCount > 0 && <span className="v2-metric-chip">共 {pageCount} 页</span>}
         {selectedSourceRegionCount > 0 && (
-          <span className="metric-chip">来源 {selectedSourceRegionCount} 区域</span>
+          <span className="v2-metric-chip">来源 {selectedSourceRegionCount} 区域</span>
         )}
-        {unplaceableCount > 0 && <span className="warning-chip">{unplaceableCount} 个超大零件</span>}
+        {unplaceableCount > 0 && <span className="v2-warning-chip">{unplaceableCount} 个超大零件</span>}
       </section>
 
-      <section className="workspace v14-workspace">
-        <SourcePanel
+      <section className={`v2-workspace mobile-active-${mobileTab}`}>
+        <div className="v2-source-slot">
+          <SourcePanel
           sources={sourceReferences}
           activeSourceId={activeSourceId}
           onSourceChange={setActiveSourceId}
           currentPageParts={currentPageParts}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
-        />
-        <CanvasPanel
+          />
+        </div>
+        <div className="v2-canvas-slot">
+          <CanvasPanel
           targetLabel={target.label}
           pageCount={pageCount}
           currentPageIndex={currentPageIndex}
@@ -1123,8 +1133,10 @@ export default function App() {
           onPointerMove={handlePointerMove}
           onPointerUp={stopInteraction}
           onPointerCancel={stopInteraction}
-        />
-        <InspectorPanel
+          />
+        </div>
+        <div className="v2-inspector-slot">
+          <InspectorPanel
           pageCount={pageCount}
           currentPageIndex={currentPageIndex}
           currentPageParts={currentPageParts}
@@ -1143,13 +1155,15 @@ export default function App() {
           currentPageStats={currentPageStats}
           overallUtilization={overallUtilization}
           setSelectedIds={setSelectedIds}
-        />
+          />
+        </div>
       </section>
 
-      <footer className="app-footer">
-        <span>V1.8 · modular architecture · multi-image project · unified packing</span>
-        <TrafficStats />
+      <footer className="v2-footer">
+        <span>Pattern Layout Studio V2.0 · 所有图像处理均在浏览器本地完成</span>
+        <span className="v2-footer-analytics">访客统计暂未启用 · 已预留独立统计接口</span>
       </footer>
+      <MobileNavigation active={mobileTab} onChange={setMobileTab} />
     </main>
   );
 }

@@ -26,7 +26,7 @@ export default function InputSizeNotice({
       >
         <div className="input-gate-icon">!</div>
         <div className="input-gate-copy">
-          <span className="control-label">INPUT SIZE GATE</span>
+          <span className="v2-eyebrow">INPUT SIZE GATE</span>
           <h2 id="input-gate-title">
             {blocked
               ? '没有可继续处理的有效图纸'

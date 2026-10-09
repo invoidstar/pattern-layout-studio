@@ -2,235 +2,122 @@
 
 # Pattern Layout Studio
 
-### Turn one or many pattern sheets into clean, traceable, no-scale print layouts — entirely in the browser.
+### 图纸拆件 · 原图追踪 · 多页智能排版
 
-[![Version](https://img.shields.io/badge/version-v1.8.1-4f63d8?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
-[![React](https://img.shields.io/badge/React-19-20232a?style=flat-square&logo=react)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-latest-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Vite](https://img.shields.io/badge/Vite-latest-646cff?style=flat-square&logo=vite&logoColor=white)](https://vite.dev/)
-[![GitHub Pages](https://img.shields.io/badge/Live-GitHub%20Pages-222?style=flat-square&logo=github)](https://invoidstar.github.io/pattern-layout-studio/)
+让一张或多张图纸，从自动拆件到打印导出，都在浏览器工作台中完成。
 
-**[Open the live app →](https://invoidstar.github.io/pattern-layout-studio/)**
+[![Version](https://img.shields.io/badge/Version-2.0-5567c7?style=flat-square)](https://github.com/invoidstar/pattern-layout-studio)
+[![React](https://img.shields.io/badge/React-19-149eca?style=flat-square&logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Checked-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vite](https://img.shields.io/badge/Vite-App-646cff?style=flat-square&logo=vite)](https://vite.dev/)
+[![Pages](https://img.shields.io/badge/Deploy-GitHub%20Pages-232a36?style=flat-square&logo=github)](https://invoidstar.github.io/pattern-layout-studio/)
+
+**[在线体验 →](https://invoidstar.github.io/pattern-layout-studio/)** · [功能介绍](#功能亮点) · [本地运行](#快速开始) · [项目架构](docs/ARCHITECTURE.md)
 
 </div>
 
 ---
 
-## What is it?
+## 项目介绍
 
-Pattern Layout Studio is a browser-based workspace for turning illustrated pattern sheets into production-ready page layouts.
+**Pattern Layout Studio** 是一个面向图纸处理与打印排版的浏览器工具。从带背景、文字标注和复杂零件的原图中提取可编辑部件，再将不同图纸的零件统一放置到有限尺寸的目标页面。
 
-Instead of manually cutting every part, cleaning masks, tracking where each piece came from, and trying to fit everything onto output pages, the app combines the full workflow:
-
-> **multi-image input → exact part extraction → source provenance → global page packing → manual repair → PNG / ZIP export**
-
-The project is designed around one strict constraint:
-
-> **Parts are repositioned, never resized by the packing system.**
-
----
-
-## Highlights
-
-| | Capability | What it does |
-| --- | --- | --- |
-| 🖼️ | **Multi-image project** | Upload multiple PNG/JPEG/WebP files at once and pack all extracted parts together. |
-| ✂️ | **Exact shape extraction** | Uses connected-component labels and exact local masks instead of treating a bounding rectangle as the part. |
-| 🎨 | **Original RGB preservation** | Keeps enclosed face / garment colours instead of turning similar-to-background colours into alpha holes. |
-| 🔎 | **Source Trace** | Click a converted part and see the exact contour it came from on the original source image. |
-| 🧩 | **Host-aware grouping** | Keeps internal emblems, facial details and decorative islands attached to the correct logical part. |
-| 📄 | **Automatic multi-page layout** | MaxRects + page compaction + cross-page backfill create as few useful pages as possible. |
-| ↔️ | **Cross-page editing** | Move selected parts between existing pages or create a new page, with packing validation before commit. |
-| 🖌️ | **Repair tools** | Continuous restore brush, eraser, merge, split, lock, delete, Undo and Redo. |
-| 📦 | **Production export** | Export the current page as PNG or all pages as ZIP, including PNG DPI metadata. |
-| 🔐 | **Browser-first** | Uploaded source images stay in the browser; no application backend is required. |
-
----
-
-## Workflow
+核心流程：
 
 ```mermaid
 flowchart LR
-    A[Upload one or many images] --> B[Background + text handling]
-    B --> C[Exact component labels]
-    C --> D[Host-aware logical parts]
-    D --> E[Source contours / provenance]
-    E --> F[Unified project part pool]
-    F --> G[MaxRects multi-page packing]
-    G --> H[Global page compaction]
-    H --> I[Canvas editing / repair]
-    I --> J[PNG current page]
-    I --> K[ZIP all pages]
+  A["上传一张或多张图纸"] --> B["尺寸预检"]
+  B --> C["形状级拆件"]
+  C --> D["来源轮廓追踪"]
+  D --> E["全局多页排版"]
+  E --> F["人工编辑"]
+  F --> G["PNG / ZIP 导出"]
 ```
 
-### 1. Import
+**核心约束：Packing 不会缩放零件。** 布局系统只改变零件在 Page 上的位置，不会偷偷改变部件的实际像素尺寸。
 
-Select one or multiple source images.
+## V2.0 · 全新工作台
 
-Before any segmentation/OCR work begins, V1.8.1 runs an input-size gate. Accepted drawing dimensions are:
+V2.0 重点提升操作体验，保留现有的 Vision 和 Packing 处理主链路。
 
-- **3500 × 3500**
-- **A4 landscape: 2970 × 2100**
-- **A4 portrait: 2100 × 2970**
+| 更新 | 内容 |
+| --- | --- |
+| **桌面工作台** | 顶部项目操作栏，左侧 Source Trace、中间画布、右侧零件检查器 |
+| **手机端** | 原生思路的「画布 / 原图 / 零件」底部导航，不再把三栏生硬叠成长页面 |
+| **画布交互** | 选择、移动画布、恢复画笔、橡皮擦四个独立模式；缩放、适应、平移和双指手势 |
+| **处理设置** | OCR、文字过滤、边缘平滑、拆分力度集中在设置抽屉中 |
+| **更新公告** | 最新公告提示、历史版本列表、已读状态记录，用户可随时重新打开 |
+| **样式整理** | 统一设计变量和移动端规则，删除历史 v1.x CSS 叠加覆盖 |
+| **流量统计** | 不再使用不蒜子；Cloudflare Workers + D1 预留接口但 **暂未启用** |
 
-Unsupported dimensions are filtered from the project and shown in an on-screen warning dialog. Valid images continue through the workflow. If every uploaded image is invalid, processing stops before extraction.
+### 桌面端
 
-For a multi-image project the valid sources are processed sequentially to keep browser memory usage under control.
+工作台以 **Canvas Editor** 为核心。源图、当前页零件和分页工具都在同一操作视野内，高级设置和导出使用独立抽屉，避免干扰画布。
 
-### 2. Extract
+### 手机端
 
-Each source goes through:
+屏幕底部可在 **画布 / 原图 / 零件** 之间快速切换。画布编辑时可选择「移动画布」模式进行单指平移、双指缩放；需要修改实际零件时切回「选择 / 画笔 / 橡皮擦」模式。
 
-- robust background estimation
-- optional geometry/OCR text filtering
-- morphology cleanup
-- exact connected-component labeling
-- host-aware grouping
-- exact local alpha generation
-- original RGB recovery
-- source contour generation
+**画布缩放只影响预览，不影响导出尺寸。**
 
-### 3. Pack
+## 功能亮点
 
-All successful sources contribute their parts to **one global project pool**.
+| 功能 | 说明 |
+| --- | --- |
+| 🖼️ 多图项目 | 一次导入多张图片，所有有效图片的零件统一参与分页 |
+| 📐 尺寸过滤 | 仅接受 `3500×3500`、`2970×2100`、`2100×2970` |
+| ✂️ 精确 Mask | 连通域标签 + 形状级裁切，避免外接矩形混入邻近零件 |
+| 🎨 颜色保留 | 保留主体内部原始 RGB，减少脸部/衣服浅色区域误透明 |
+| 🔎 来源追踪 | 在原图上高亮精确轮廓，跨原图合并仍保留各自来源 |
+| 🧩 装饰归并 | 保守模式下优先保留衣服图案等属于主体的内部小块 |
+| 📄 自动分页 | MaxRects + 全局整页合并 + 后页零件回填 |
+| ↔️ 跨页调整 | 零件可从 Page 2 移到 Page 1，也可新建页面 |
+| 🖌️ 手动修正 | 连续恢复画笔、橡皮擦、合并、拆分、锁定、撤销和重做 |
+| 📦 导出 | 当前页 PNG，或所有页面打包 ZIP；附带 DPI 元数据 |
 
-The layout engine then performs:
+## 如何使用
 
-1. multi-strategy MaxRects
-2. automatic page creation
-3. whole-page merge attempts
-4. later-page → earlier-page backfill
-5. page compaction and reindexing
+1. **添加图纸**：在工作台点击「添加图纸」，可一次选多张 PNG、JPEG 或 WebP。尺寸不符合要求的图片会在拆件前被过滤并提示。
+2. **检查拆件**：自动处理完成后，点击任意零件，在「原图」中查看对应来源轮廓；需要修边时切换画笔或橡皮擦。
+3. **优化排版**：查看 Page 利用率，使用全局自动优化，或者手动把零件移动到其它 Page。
+4. **导出页面**：点击「导出」，选择当前页 PNG 或全部页面 ZIP，按需设置 DPI。
 
-### 4. Refine
+当前目标页面规格为：
 
-Use the workspace to:
+- **方形**：3500 × 3500
+- **A4 横版**：2970 × 2100
 
-- drag parts
-- move parts across pages
-- change page packing gap
-- lock / unlock
-- merge / split
-- restore original pixels with the brush
-- erase alpha
-- Undo / Redo
+对于较大的复杂图纸，浏览器端运算可能需要一些时间；可选择关闭 OCR 增强加快处理。
 
-### 5. Export
+## 技术结构
 
-Supported target canvases:
-
-- **3500 × 3500**
-- **2970 × 2100**
-
-Export options:
-
-- current page → PNG
-- all pages → ZIP
-- configurable DPI
-- PNG `pHYs` metadata
-- no-scale placement
-
----
-
-## Source Trace
-
-Every automatically extracted part stores its original source relationship.
-
-For a normal part:
-
-```text
-PatternPart
-  └─ sourceId
-      └─ SourceRegion
-          ├─ original crop box
-          └─ exact contours
-```
-
-For parts merged across different originals, provenance stays separated by source image. Coordinates from Source 1 and Source 2 are never incorrectly merged into one coordinate system.
-
-The left panel lets you switch between **S1 / S2 / S3 / ...** and inspect the exact contribution from each source.
-
----
-
-## Page layout engine
-
-Pattern Layout Studio uses **no-scale MaxRects packing**.
-
-V1.6+ adds global optimization on top of the first greedy page solve:
-
-- try to merge complete later pages into earlier pages
-- backfill individual smaller parts into unused earlier-page space
-- re-run a complete MaxRects validation after every accepted move
-- remove empty pages automatically
-
-Manual page transfer uses the same rule:
-
-> the move only commits when the full destination page can still be packed without scaling.
-
----
-
-## Repair editor
-
-The Canvas workspace includes:
-
-- **Select** — drag and multi-select
-- **Restore brush** — continuously paints original unmasked RGB back into the part
-- **Eraser** — continuously removes alpha
-- **Merge** — creates one logical part from multiple selected parts
-- **Split** — atomically replaces one part with its disconnected child regions
-- **Lock / Unlock**
-- **Delete**
-- **Undo / Redo**
-
-Automatic crops include a repair margin so edge pixels can be recovered instead of being permanently clipped.
-
----
-
-## Architecture
-
-V1.8 reorganized the codebase into explicit layers.
+V2.0 在已有模块化基础上将 UI、项目流程、算法和数据类型分开维护。
 
 ```text
 src/
-├─ app/            application orchestration and configuration
-├─ components/     React UI panels and widgets
+├─ app/                 应用状态与整体流程
+├─ components/          桌面/手机 UI、公告、面板
+├─ content/             更新公告内容
 ├─ core/
-│  ├─ vision/      image / mask / contour algorithms
-│  ├─ layout/      packing and placement algorithms
-│  └─ export/      PNG / ZIP output
-├─ domain/         shared domain types
+│  ├─ vision/           图像分割、Mask、OCR、轮廓
+│  ├─ layout/           MaxRects、页面合并、回填
+│  └─ export/           PNG DPI、ZIP 输出
+├─ domain/              零件、来源和页面数据模型
 ├─ features/
-│  ├─ extraction/  one-source processing workflow
-│  ├─ project/     multi-source project construction
-│  ├─ layout/      project/page layout orchestration
-│  ├─ provenance/  source-region handling
-│  ├─ editor/      image utilities
-│  └─ debug/       diagnostic previews
-└─ styles/         application styles
+│  ├─ extraction/       单图处理
+│  ├─ project/          多图统一项目
+│  ├─ provenance/       来源追踪
+│  └─ layout/           排版与跨页移动
+├─ hooks/               画布平移与缩放
+├─ services/analytics/  统计接口（默认禁用）
+└─ styles/              Design Tokens、工作台、手机端样式
 ```
 
-The dependency direction is intentionally simple:
+[查看完整架构说明](docs/ARCHITECTURE.md)
 
-```mermaid
-flowchart LR
-    UI[app + components] --> Features[features]
-    Features --> Core[core]
-    Features --> Domain[domain]
-    Core --> Domain
-```
+## 快速开始
 
-See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full breakdown.
-
----
-
-## Quick start
-
-### Requirements
-
-- Node.js 20+
-- npm
-
-### Development
+**要求**：Node.js 20+、npm。
 
 ```bash
 git clone https://github.com/invoidstar/pattern-layout-studio.git
@@ -239,116 +126,45 @@ npm install
 npm run dev
 ```
 
-### Production build
+质量检查与生产构建：
 
 ```bash
+npm run typecheck
 npm run build
 npm run preview
 ```
 
-GitHub Pages deployment is handled by:
+GitHub Pages 使用 `.github/workflows/pages.yml` 自动发布 `main` 分支。
 
-```text
-.github/workflows/pages.yml
-```
+## 数据与隐私
 
----
+- 上传图纸在浏览器本地处理，不需要将原始图片上传到应用服务器。
+- OCR 增强在启用时按需加载 OCR 运行时/语言模型。
+- **当前不会收集 PV 或 UV**：不蒜子脚本已移除；分析接口保留在 `src/services/analytics/`，但禁用状态下不会发送访问记录请求。
+- Cloudflare Workers + D1 是未来可选扩展，尚未部署，不显示模拟统计数据。
+- 刷新页面前请导出所需结果；当前版本不承诺云端项目持久保存。
 
-## Current project capabilities
+## 版本记录
 
-### Extraction
-
-- solid / near-solid background estimation
-- JPEG noise tolerance
-- text exclusion
-- optional English + Simplified Chinese OCR
-- morphology cleanup
-- exact label-based part masks
-- smooth antialiased contours
-- internal RGB preservation
-- internal-decoration grouping
-
-### Project / layout
-
-- one or many source images
-- unified part pool
-- multi-page packing
-- page utilization metrics
-- adjustable part gap
-- global page compaction
-- manual cross-page transfer
-- automatic dedicated page for near-canvas-size parts
-
-### Provenance
-
-- source IDs
-- exact original-image contours
-- source-image browser
-- multi-source merged-part provenance
-- split provenance refinement
-
-### Export
-
-- PNG
-- ZIP
-- 3500×3500
-- 2970×2100
-- configurable DPI
-- `pHYs` metadata
-
----
-
-## Traffic statistics
-
-The deployed site includes a lightweight **Busuanzi** counter in the footer.
-
-It uses **page-level** counters rather than domain-wide site counters, so this GitHub Pages project is not merged with other projects under `invoidstar.github.io`.
-
-It displays:
-
-- **Page UV — unique visitors / 访客**
-- **Page PV — page views / 浏览量**
-
-The counter is loaded as a small optional client-side widget and is isolated from the image-processing pipeline.
-
----
-
-## Version history
-
-| Version | Focus |
+| 版本 | 主要内容 |
 | --- | --- |
-| **V1.8.1** | Input-size gate for 3500×3500 / A4 drawings |
-| **V1.8** | Modular code architecture, showcase README, traffic widget |
-| **V1.7** | Multi-image projects and unified cross-source page packing |
-| **V1.6** | Cross-page transfer, global page compaction, workspace redesign |
-| **V1.5** | Exact shape masks, RGB preservation, split/brush fixes |
-| **V1.4** | Source Trace and three-pane workspace |
-| **V1.3** | Automatic multi-page packing and ZIP export |
-| **V1.2** | Text exclusion, smooth contours, manual repair |
-| **V1.1** | Real-image stability and MaxRects Packing V2 |
+| **V2.0** | 工作台与移动端重构、画布缩放平移、公告、统计预留接口、CSS 清理 |
+| V1.8.1 | 输入图纸尺寸预检 |
+| V1.8 | 工程模块化、README 展示与基础流量统计 |
+| V1.7 | 多图项目统一拆件和排版 |
+| V1.6 | 跨页移动、全局页面压缩 |
+| V1.5 | 精确 Mask、颜色保留、画笔/拆分修复 |
+| V1.4 | Source Trace |
+| V1.3 | 自动多页与 ZIP |
 
-Detailed implementation and acceptance notes are available under **[`docs/`](docs/)**.
-
----
-
-## Privacy & processing model
-
-Pattern Layout Studio is intentionally browser-first.
-
-- source images are processed locally in the browser
-- source files are not uploaded to the repository
-- no application server is required
-- optional OCR downloads the OCR runtime/language assets only when enabled
-- Busuanzi page-level UV/PV counting is separate from image content and processing
+历史实现与验收记录保存在 [`docs/`](docs/)。
 
 ---
 
 <div align="center">
 
-### Pattern Layout Studio
+**Pattern Layout Studio · Edit with confidence. Pack without scaling.**
 
-**Clean parts. Keep provenance. Pack pages. Export.**
-
-[Live Demo](https://invoidstar.github.io/pattern-layout-studio/) · [Architecture](docs/ARCHITECTURE.md) · [V1.8 Acceptance](docs/V1.8_ACCEPTANCE.md)
+[在线使用](https://invoidstar.github.io/pattern-layout-studio/) · [架构说明](docs/ARCHITECTURE.md) · [问题反馈](https://github.com/invoidstar/pattern-layout-studio/issues)
 
 </div>

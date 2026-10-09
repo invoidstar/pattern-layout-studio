@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { PatternPart, SourceBox, SourcePoint } from '../domain';
 import type { SourceReference } from '../features/project/model';
-import {
-  sourceBoxesFor,
-  sourceRegionsFor,
-} from '../features/provenance/source-regions';
+import { sourceBoxesFor, sourceRegionsFor } from '../features/provenance/source-regions';
+import Icon from './ui/Icon';
 
 interface SourceTraceItem {
   part: PatternPart;
@@ -23,206 +21,150 @@ interface SourcePanelProps {
 }
 
 export default function SourcePanel({
-  sources,
-  activeSourceId,
-  onSourceChange,
-  currentPageParts,
-  selectedIds,
-  onSelectionChange,
+  sources, activeSourceId, onSourceChange, currentPageParts, selectedIds, onSelectionChange,
 }: SourcePanelProps) {
-  const [debugOpen, setDebugOpen] = useState(false);
-  const activeSource =
-    sources.find((source) => source.id === activeSourceId) ??
-    sources[0] ??
-    null;
+  const [showAllContours, setShowAllContours] = useState(true);
+  const activeSource = sources.find(s=>s.id===activeSourceId) ?? sources[0] ?? null;
 
   const traceItems = useMemo<SourceTraceItem[]>(() => {
     if (!activeSource) return [];
-    return currentPageParts.flatMap((part) =>
+    return currentPageParts.flatMap(part=>
       sourceRegionsFor(part)
-        .filter((region) => region.sourceId === activeSource.id)
-        .flatMap((region, regionIndex) => {
-          if (region.contours?.length) {
-            return region.contours.map((contour, contourIndex) => ({
-              part,
-              contour,
-              box: region.box,
-              index: regionIndex * 1000 + contourIndex,
+        .filter(region=>region.sourceId===activeSource.id)
+        .flatMap<SourceTraceItem>((region, regionIndex)=>{
+          if(region.contours?.length){
+            return region.contours.map((contour,contourIndex)=>({
+              part, contour, box:region.box, index:regionIndex*1000+contourIndex,
             }));
           }
-          return region.box
-            ? [{
-                part,
-                box: region.box,
-                index: regionIndex,
-              }]
-            : [];
-        }),
+          return region.box ? [{part, box:region.box, index:regionIndex}] : [];
+        })
     );
-  }, [currentPageParts, activeSource]);
+  },[activeSource,currentPageParts]);
 
-  const selectedBoxes = useMemo(() => {
-    if (!activeSource) return [];
-    return currentPageParts
-      .filter((part) => selectedIds.includes(part.id))
-      .flatMap((part) => sourceBoxesFor(part, activeSource.id));
-  }, [activeSource, currentPageParts, selectedIds]);
-
-  const selectedRegionCount = useMemo(
-    () =>
-      currentPageParts
-        .filter((part) => selectedIds.includes(part.id))
-        .reduce(
-          (total, part) => total + sourceRegionsFor(part).length,
-          0,
-        ),
-    [currentPageParts, selectedIds],
+  const selectedBoxes = useMemo(() =>
+    activeSource
+      ? currentPageParts
+          .filter(part=>selectedIds.includes(part.id))
+          .flatMap(part=>sourceBoxesFor(part,activeSource.id))
+      : [],
+    [activeSource,currentPageParts,selectedIds]
   );
 
+  const selectedCount = currentPageParts.filter(part=>selectedIds.includes(part.id)).length;
+
   return (
-    <aside className="source-panel">
-      <div className="panel-heading source-heading">
+    <section className="v2-source-panel" aria-label="原图与精确来源追踪">
+      <header className="v2-panel-header">
         <div>
-          <span className="control-label">SOURCE TRACE</span>
-          <strong>原图定位</strong>
+          <span className="v2-eyebrow">SOURCE TRACE</span>
+          <h2>原图来源</h2>
+          <small>{sources.length ? `共 ${sources.length} 张原图 · 选择零件查看来源` : '上传图纸后显示来源位置'}</small>
         </div>
-        <span className="panel-page-badge">{sources.length} sources</span>
-        <button
-          className="debug-toggle"
-          onClick={() => setDebugOpen((value) => !value)}
-          disabled={!activeSource?.debugImages}
-        >
-          {debugOpen ? '收起调试' : '调试'}
-        </button>
-      </div>
+        <span className="v2-count-badge">{sources.length}</span>
+      </header>
 
       {activeSource ? (
         <>
-          {sources.length > 1 && (
-            <div className="source-tabs">
-              {sources.map((source, index) => (
-                <button
-                  key={source.id}
-                  className={source.id === activeSource.id ? 'active' : ''}
-                  onClick={() => onSourceChange(source.id)}
-                  title={source.name}
-                >
-                  <img src={source.imageUrl} alt="" />
-                  <span>S{index + 1}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="source-preview-wrap">
-            <div
-              className="source-image-wrap"
-              style={{
-                aspectRatio: `${activeSource.width} / ${activeSource.height}`,
-              }}
-            >
-              <img src={activeSource.imageUrl} alt={activeSource.name} />
+          <div className="v2-source-tabs" aria-label="原图切换">
+            {sources.map((source,index)=>(
+              <button
+                key={source.id}
+                className={`v2-source-tab ${source.id===activeSource.id?'active':''}`}
+                title={source.name}
+                aria-pressed={source.id===activeSource.id}
+                onClick={()=>onSourceChange(source.id)}
+              >
+                <img src={source.imageUrl} alt=""/>
+                <span>S{index+1}</span>
+              </button>
+            ))}
+          </div>
+          <div className="v2-source-stage">
+            <div className="v2-source-image" style={{aspectRatio:`${activeSource.width} / ${activeSource.height}`}}>
+              <img src={activeSource.imageUrl} alt={activeSource.name}/>
               <svg
-                className="source-shape-layer"
+                className="v2-source-shapes"
                 viewBox={`0 0 ${activeSource.width} ${activeSource.height}`}
                 preserveAspectRatio="none"
-                aria-label="原图精确来源轮廓"
+                aria-label="零件来源轮廓"
               >
-                {traceItems.map(({ part, contour, box, index }) => {
-                  const active = selectedIds.includes(part.id);
-                  if (contour?.length) {
+                {traceItems.filter(item=>showAllContours||selectedIds.includes(item.part.id)).map(({part,contour,box,index})=>{
+                  const active=selectedIds.includes(part.id);
+                  if(contour?.length){
                     return (
                       <polygon
                         key={`${part.id}-contour-${index}`}
-                        points={contour
-                          .map((point) => `${point.x},${point.y}`)
-                          .join(' ')}
-                        className={`source-shape ${active ? 'active' : ''}`}
-                        onClick={() => onSelectionChange([part.id])}
+                        points={contour.map(p=>`${p.x},${p.y}`).join(' ')}
+                        className={`v2-source-shape ${active?'selected':''}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`查看零件 ${part.name}`}
+                        onClick={()=>onSelectionChange([part.id])}
+                        onKeyDown={event=>{
+                          if(event.key==='Enter'||event.key===' '){
+                            event.preventDefault();
+                            onSelectionChange([part.id]);
+                          }
+                        }}
                       />
                     );
                   }
-                  if (!box) return null;
-                  return (
+                  return box ? (
                     <rect
                       key={`${part.id}-box-${index}`}
-                      x={box.x}
-                      y={box.y}
-                      width={box.width}
-                      height={box.height}
-                      className={`source-shape source-shape-fallback ${active ? 'active' : ''}`}
-                      onClick={() => onSelectionChange([part.id])}
+                      x={box.x} y={box.y} width={box.width} height={box.height}
+                      className={`v2-source-shape fallback ${active?'selected':''}`}
+                      onClick={()=>onSelectionChange([part.id])}
                     />
-                  );
+                  ):null;
                 })}
               </svg>
             </div>
           </div>
-
-          <div className="source-meta">
-            <div>
-              <span>原图</span>
-              <strong>{activeSource.width} × {activeSource.height}</strong>
-            </div>
-            <div>
-              <span>{activeSource.name}</span>
-              <strong>{traceItems.length} 个当前页映射</strong>
-            </div>
+          <div className="v2-source-meta">
+            <span title={activeSource.name}><strong>{activeSource.name}</strong><small>{activeSource.width} × {activeSource.height} px</small></span>
+            <label className="v2-source-toggle">
+              <input type="checkbox" checked={showAllContours} onChange={event=>setShowAllContours(event.target.checked)}/>
+              <span>显示轮廓</span>
+            </label>
           </div>
-
-          <div className="source-selection">
-            {selectedIds.length ? (
-              <>
-                <div className="source-selection-title">
-                  <strong>已选 {selectedIds.length} 个零件</strong>
-                  <span>
-                    当前原图 {selectedBoxes.length} 区域 · 总计 {selectedRegionCount}
-                  </span>
-                </div>
-                <div className="source-region-list">
-                  {selectedBoxes.map((box, index) => (
-                    <div key={`selected-source-${index}`}>
-                      <b>{index + 1}</b>
-                      <span>x {box.x} · y {box.y}</span>
-                      <em>{box.width} × {box.height}px</em>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p>
-                点击右侧零件或原图上的精确轮廓，即可查看转换后的零件来自原图哪个位置。
-              </p>
-            )}
-          </div>
-
-          {debugOpen && activeSource.debugImages && (
-            <div className="debug-grid source-debug-grid">
-              <figure>
-                <img src={activeSource.debugImages.raw} alt="" />
-                <figcaption>Raw mask</figcaption>
-              </figure>
-              <figure>
-                <img src={activeSource.debugImages.afterText} alt="" />
-                <figcaption>文字过滤后</figcaption>
-              </figure>
-              <figure>
-                <img src={activeSource.debugImages.smooth} alt="" />
-                <figcaption>平滑 mask</figcaption>
-              </figure>
-              <figure>
-                <img src={activeSource.debugImages.textOverlay} alt="" />
-                <figcaption>文字检测框</figcaption>
-              </figure>
+          {selectedCount>0 ? (
+            <div className="v2-source-selection">
+              <div className="v2-inspector-title">
+                <h3><Icon name="cursor" size={15}/> 已选来源</h3>
+                <span>{selectedCount} 件 · {selectedBoxes.length} 区域</span>
+              </div>
+              <div className="v2-source-region-list">
+                {selectedBoxes.map((box,index)=>(
+                  <div key={index}><b>{index+1}</b><span>X {box.x} · Y {box.y}</span><strong>{box.width}×{box.height}</strong></div>
+                ))}
+              </div>
             </div>
+          ):(
+            <p className="v2-source-guide">选择中间画布或零件列表中的部件，这里会高亮它在原图中的精确轮廓。</p>
           )}
+          <details className="v2-source-debug">
+            <summary><Icon name="info" size={16}/> 查看识别调试视图 <Icon name="chevron-down" size={15}/></summary>
+            <div className="v2-debug-grid">
+              {[
+                {name:'原始 Mask',image:activeSource.debugImages.raw},
+                {name:'文字过滤后',image:activeSource.debugImages.afterText},
+                {name:'边缘平滑后',image:activeSource.debugImages.smooth},
+                {name:'文字区域',image:activeSource.debugImages.textOverlay},
+              ].map(item=>(
+                <figure key={item.name}><img src={item.image} alt={item.name}/><figcaption>{item.name}</figcaption></figure>
+              ))}
+            </div>
+          </details>
         </>
       ) : (
-        <div className="source-empty">
-          <strong>等待图片项目</strong>
-          <span>可一次选择多张图片，处理后在这里切换查看来源。</span>
+        <div className="v2-source-empty">
+          <Icon name="image" size={37}/>
+          <h3>等待导入图纸</h3>
+          <p>支持一次选择多张图纸，拆件后可以查看每个零件来自哪张原图。</p>
         </div>
       )}
-    </aside>
+    </section>
   );
 }

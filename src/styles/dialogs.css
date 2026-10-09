@@ -1,0 +1,48 @@
+.v2-modal-backdrop{
+  position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  padding:22px;background:rgba(24,33,57,.35);backdrop-filter:blur(7px)
+}
+.v2-modal-card{
+  width:min(580px,100%);max-height:calc(100vh - 44px);overflow:auto;background:#fff;border:1px solid var(--line);
+  border-radius:21px;box-shadow:var(--shadow-dialog);padding:24px
+}
+.v2-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px}
+.v2-modal-header h2{font-size:22px;line-height:1.2;margin:7px 0 0;letter-spacing:-.035em}
+.v2-modal-footer{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;margin-top:21px;padding-top:14px;border-top:1px solid var(--line)}
+.v2-settings-note{font-size:12px;color:var(--ink-muted);line-height:1.6;margin:-3px 0 18px}
+.v2-settings-grid{display:grid;gap:8px}
+.v2-setting-field{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;
+  background:var(--surface-soft);border:1px solid var(--line);border-radius:12px
+}
+.v2-setting-field>span{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0}
+.v2-setting-field strong{font-size:12px}
+.v2-setting-field small{font-size:10px;color:var(--ink-faint);line-height:1.5}
+.v2-setting-field select,.v2-setting-field input[type=number]{
+  min-width:108px;max-width:150px;border:1px solid var(--line-strong);border-radius:9px;
+  padding:9px;background:#fff;color:var(--ink);font-size:11px
+}
+.v2-setting-switch input{width:18px;height:18px;flex:0 0 auto}
+.v2-export-overview{display:flex;align-items:center;gap:10px;padding:13px;border-radius:12px;background:#f2f5ff;color:#4b60b8;font-size:12px;font-weight:700;margin-bottom:11px}
+.v2-export-options{display:grid;gap:9px;margin-top:13px}
+.v2-export-options>button{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 15px;
+  background:#fff;border:1px solid var(--line);border-radius:13px;color:var(--ink)
+}
+.v2-export-options>button:hover:not(:disabled){border-color:var(--accent-line);background:#f7f8ff}
+.v2-export-options>button>span{display:grid;gap:5px;flex:1}
+.v2-export-options strong{font-size:12px}
+.v2-export-options small{font-size:11px;color:var(--ink-faint)}
+/* Input-size gate shares the same dialog visual system. */
+.input-gate-backdrop{position:fixed;inset:0;z-index:240;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(26,36,58,.42);backdrop-filter:blur(7px)}
+.input-gate-dialog{width:min(600px,100%);max-height:calc(100vh - 40px);overflow:auto;border-radius:20px;background:#fff;box-shadow:var(--shadow-dialog);padding:24px}
+.input-gate-icon{display:grid;place-items:center;width:36px;height:36px;margin-bottom:10px;border-radius:11px;background:#fff1d9;color:#a66b26;font-size:20px;font-weight:800}
+.input-gate-copy h2{margin:5px 0 8px;font-size:20px}
+.input-gate-copy p{color:var(--ink-muted);font-size:12px;line-height:1.65}
+.input-gate-list{display:grid;gap:6px;margin:15px 0}
+.input-gate-item{display:flex;align-items:center;gap:9px;background:#fffaf3;border:1px solid #f2e7d5;padding:10px 12px;border-radius:11px;font-size:11px}
+.input-gate-item>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.input-gate-item strong{color:#965e22}
+.input-gate-item em{font-style:normal;color:#a77730}
+.input-gate-actions{display:flex;justify-content:flex-end}
+.input-gate-actions button{background:var(--accent);border:0;color:white;border-radius:10px;padding:10px 17px}
