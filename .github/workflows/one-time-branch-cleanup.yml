@@ -1,0 +1,43 @@
+name: One-time Branch Cleanup
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-time-branch-cleanup.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove previously merged branches
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          for branch in "feature/v2-workspace" "feature/v2-export-background-favicon" "chore/pages-only-docs-cleanup"; do
+            case "$branch" in
+              "feature/v2-workspace") expected_sha="d644587ec5bc9a5af84a95c98dc6e910324330b0" ;;
+              "feature/v2-export-background-favicon") expected_sha="f93b9cfe91d85c72224b74b301c6de467f5e4f2d" ;;
+              "chore/pages-only-docs-cleanup") expected_sha="de22ea1350f5a1f3b815beba944059742ced0f6d" ;;
+            esac
+
+            current_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/$branch" --jq '.commit.sha')"
+            if [[ "$current_sha" != "$expected_sha" ]]; then
+              echo "::error::Branch $branch changed since the merged-PR review. Refusing to delete."
+              exit 1
+            fi
+            echo "Removing previously merged branch: $branch"
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+          done
+
+          remaining="$(gh api "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name')"
+          echo "Remaining branches: $remaining"
+          if [[ "$remaining" != "main" ]]; then
+            echo "::error::Expected only main after cleanup"
+            exit 1
+          fi
